@@ -2,8 +2,13 @@
 import os
 import time
 import random
+import signal
 import traceback
 from multiprocessing import Process, Queue, Event
+
+# Sygnał dla alarmu pożarowego
+FIRE_SIGNAL = signal.SIGUSR1 if hasattr(signal, 'SIGUSR1') else signal.SIGINT
+SHUTDOWN_SIGNAL = signal.SIGINT
 
 TABLE_COUNTS = {
     1: 2,  # X1
@@ -14,7 +19,8 @@ TABLE_COUNTS = {
 
 NUM_CUSTOMERS = 5
 MAX_GROUP_SIZE = 3
-SIMULATION_DURATION = 15
+SIMULATION_DURATION = 30 # na razie symulacja trwa 30 sekund dla testu
+FIRE_RANDOM_DELAY = (5, 15)  # Alarm pożarowy losowo co 5-15 sekund
 
 
 def manager_process(queue: Queue, close_event: Event):
@@ -30,6 +36,13 @@ def manager_process(queue: Queue, close_event: Event):
                         table['group_size'] = group_size
                         return table['table_id']
         return None
+    
+    def handle_signal(signum, frame):
+        if signum == FIRE_SIGNAL:
+            print(f"[Manager] Otrzymałem sygnał pożaru! Ewakuacja pizzerii!")
+            fire_event.set()
+
+    signal.signal(FIRE_SIGNAL, handle_signal)
 
     print("[Manager] Proces rozpoczęty.")
     
@@ -39,6 +52,12 @@ def manager_process(queue: Queue, close_event: Event):
             msg_type, data = queue.get_nowait()
             if msg_type == "REQUEST_SEAT":
                 group_size, customer_id = data
+                if fire_event.is_set():
+                    print(f"[Manager] Pożar! Klient {customer_id} musi opuścić lokal.")
+                    queue.put(("LEAVE", customer_id))
+                    continue
+
+
                 table_id = seat_customer_group(group_size)
                 if table_id is not None:
                     total_profit += group_size * 10
@@ -64,6 +83,10 @@ def customer_process(queue: Queue, close_event: Event, group_size: int, customer
     queue.put(("REQUEST_SEAT", (group_size, customer_id)))
     while not close_event.is_set():
         time.sleep(0.1)
+        if fire_event.is_set():
+            print(f"[Customer-{customer_id}] Pożar! Klient ucieka.")
+            return
+        
         if not queue.empty():
             msg_type, data = queue.get_nowait()
             if msg_type == "SEATED" and data == customer_id:
@@ -73,16 +96,28 @@ def customer_process(queue: Queue, close_event: Event, group_size: int, customer
                 queue.put(("CUSTOMER_DONE", (group_size, customer_id, 9999)))  # na razie takie, manager wie jakie stoliki są zajęte
                 return
             elif msg_type == "REJECTED" and data == customer_id:
-                print(f"[Customer-{customer_id}] Odrzucono. Klient wychodzi.")
+                print(f"[Customer-{customer_id}] Brak miejsc. Klient wychodzi.")
                 return
+
+def firefighter_process(fire_event: Event):
+    delay = random.randint(*FIRE_RANDOM_DELAY)
+    print(f"[Firefighter] Pożar za {delay} sekund...")
+    time.sleep(delay)
+
+    print("[Firefighter] Alarm pożarowy! Wysyłanie sygnału do menedżera.")
+    os.kill(os.getppid(), FIRE_SIGNAL)
 
 
 def main():
     queue = Queue()
     close_event = Event()
+    fire_event = Event()
 
     manager_proc = Process(target=manager_process, args=(queue, close_event))
     manager_proc.start()
+
+    firefighter_proc = Process(target=firefighter_process, args=(fire_event,))
+    firefighter_proc.start()
 
     customer_procs = [Process(target=customer_process, args=(queue, close_event, random.randint(1, MAX_GROUP_SIZE), i)) for i in range(NUM_CUSTOMERS)]
     for p in customer_procs:
