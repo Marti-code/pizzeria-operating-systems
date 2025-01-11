@@ -23,7 +23,7 @@ SIMULATION_DURATION = 30 # na razie symulacja trwa 30 sekund dla testu
 FIRE_RANDOM_DELAY = (5, 15)  # Alarm pożarowy losowo co 5-15 sekund
 
 
-def manager_process(queue: Queue, close_event: Event):
+def manager_process(queue: Queue, fire_event: Event, close_event: Event):
     tables = {}
     total_profit = 0 # będziemy zliczać pieniążki
 
@@ -58,14 +58,20 @@ def manager_process(queue: Queue, close_event: Event):
                             return (table['table_id'], seats_before, seats_after)
         return None
     
+    # Sygnały
     def handle_signal(signum, frame):
         if signum == FIRE_SIGNAL:
-            print(f"[Manager] Otrzymałem sygnał pożaru! Ewakuacja pizzerii!")
+            print(f"[Manager] Otrzymałem sygnał pożaru. Ewakuacja pizzeri!")
             fire_event.set()
+        elif signum == SHUTDOWN_SIGNAL:
+            print(f"[Manager] Otrzymałem sygnał zakończenia symulacji. Zakańczanie symulacji.")
+            close_event.set()
 
     signal.signal(FIRE_SIGNAL, handle_signal)
+    signal.signal(SHUTDOWN_SIGNAL, handle_signal)
 
     print("[Manager] Proces rozpoczęty.")
+    print("[Manager] Stoliki:", tables)
     
     while not close_event.is_set():
         time.sleep(0.1)
@@ -74,32 +80,50 @@ def manager_process(queue: Queue, close_event: Event):
             if msg_type == "REQUEST_SEAT":
                 group_size, customer_id = data
                 if fire_event.is_set():
-                    print(f"[Manager] Pożar! Klient {customer_id} musi opuścić lokal.")
+                    # Manager informuje klienktów by wyszli
+                    print(f"[Manager] Jest pożar. Informowanie klienta {customer_id} by wyszedł.")
                     queue.put(("LEAVE", customer_id))
                     continue
 
-
-                table_id = seat_customer_group(group_size)
-                if table_id is not None:
-                    total_profit += group_size * 10
-                    print(f"[Manager] Klient {customer_id} zajął miejsce (grupa {group_size}). Stolik {table_id}.")
+                seat_result = seat_customer_group(group_size)
+                if seat_result:
+                    table_id, seats_before, seats_after = seat_result
+                    
+                    group_profit = group_size * 10 # na razie profit to rozmiar grupy * 10, może coś bardziej fancy wymyślę później
+                    total_profit += group_profit
+                    print(
+                        f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) "
+                        f"Stolik {table_id}, ilość miejsc zajętych przed:{seats_before} -> ilość miejsc zajętych teraz:{seats_after}. "
+                        f"Profit+={group_profit}, Całkowity profit={total_profit}"
+                    )
                     queue.put(("SEATED", customer_id))
                 else:
-                    print(f"[Manager] Brak miejsca dla grupy {customer_id} ({group_size} osób).")
+                    print(
+                        f"[Manager] Klient {customer_id} nie mógł usiąść (ilość osób={group_size}). Brak miejsca."
+                    )
                     queue.put(("REJECTED", customer_id))
             elif msg_type == "CUSTOMER_DONE":
+                # Grupa wychodzi, zwalniamy miejsca
                 group_size, customer_id, table_id = data
-                print(f"[Manager] Klient {customer_id} wychodzi (grupa {group_size}). Zwolniono stolik {table_id}.")
-                for size in tables.values():
-                    for table in size:
+
+                for size_arr in tables.values():
+                    for table in size_arr:
                         if table['table_id'] == table_id:
+                            print(
+                                f"[Manager] Klient {customer_id} wychodzi. Zwolniło się {group_size} miejsca ze stolika {table_id}."
+                            )
                             table['used_seats'] -= group_size
                             if table['used_seats'] == 0:
                                 table['group_size'] = None
+                            break
+
+            else:
+                print(f"[Manager] Nieznana wiadomość: {msg_type}, ignoruj.")
+
     print(f"[Manager] Pizzeria zamknięta. Profit: {total_profit}")
 
 
-def customer_process(queue: Queue, close_event: Event, group_size: int, customer_id: int):
+def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_size: int, customer_id: int):
     print(f"[Customer-{customer_id}] Grupa {group_size} prosi o stolik.")
     queue.put(("REQUEST_SEAT", (group_size, customer_id)))
     while not close_event.is_set():
@@ -120,7 +144,7 @@ def customer_process(queue: Queue, close_event: Event, group_size: int, customer
                 print(f"[Customer-{customer_id}] Brak miejsc. Klient wychodzi.")
                 return
 
-def firefighter_process(fire_event: Event):
+def firefighter_process(queue: Queue, fire_event: Event, close_event: Event):
     delay = random.randint(*FIRE_RANDOM_DELAY)
     print(f"[Firefighter] Pożar za {delay} sekund...")
     time.sleep(delay)
@@ -162,8 +186,17 @@ def main():
     )
     firefighter_proc.start()
 
-    time.sleep(SIMULATION_DURATION)
-    close_event.set()
+    # Rozpoczynamy symulacje
+    start_time = time.time()
+    while True:
+        time.sleep(0.5)
+        if close_event.is_set():
+            break
+        # Na razie jak minie 30 sekund to zakańczamy
+        if (time.time() - start_time) > SIMULATION_DURATION:
+            print("[Main] Koniec czasu.")
+            os.kill(manager_proc.pid, SHUTDOWN_SIGNAL)
+            break
 
     # Czekamy aż wszystkie procesy się zakończą
     firefighter_proc.join()
