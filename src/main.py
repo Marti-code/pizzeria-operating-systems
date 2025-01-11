@@ -126,22 +126,43 @@ def main():
     close_event = Event()
     fire_event = Event()
 
-    manager_proc = Process(target=manager_process, args=(queue, close_event))
+    # Manager - start
+    manager_proc = Process(
+        target=manager_process,
+        args=(queue, fire_event, close_event),
+        name="ManagerProcess"
+    )
     manager_proc.start()
 
-    firefighter_proc = Process(target=firefighter_process, args=(fire_event,))
-    firefighter_proc.start()
-
-    customer_procs = [Process(target=customer_process, args=(queue, close_event, random.randint(1, MAX_GROUP_SIZE), i)) for i in range(NUM_CUSTOMERS)]
-    for p in customer_procs:
+    # Klienci - start
+    customer_procs = []
+    for i in range(NUM_CUSTOMERS):
+        group_size = random.randint(1, MAX_GROUP_SIZE)
+        p = Process(
+            target=customer_process,
+            args=(queue, fire_event, close_event, group_size, i),
+            name=f"Customer-{i}"
+        )
         p.start()
+        customer_procs.append(p)
+
+    # Strażak - start
+    firefighter_proc = Process(
+        target=firefighter_process,
+        args=(queue, fire_event, close_event),
+        name="FirefighterProcess"
+    )
+    firefighter_proc.start()
 
     time.sleep(SIMULATION_DURATION)
     close_event.set()
 
+    # Czekamy aż wszystkie procesy się zakończą
+    firefighter_proc.join()
     for p in customer_procs:
         p.join()
     manager_proc.join()
+
     print("[Main] Symulacja zakończona.")
 
 
