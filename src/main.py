@@ -24,8 +24,21 @@ FIRE_RANDOM_DELAY = (5, 15)  # Alarm pożarowy losowo co 5-15 sekund
 
 
 def manager_process(queue: Queue, close_event: Event):
-    tables = {size: [{'table_id': i, 'capacity': size, 'used_seats': 0, 'group_size': None} for i in range(2)] for size in TABLE_COUNTS}
-    total_profit = 0
+    tables = {}
+    total_profit = 0 # będziemy zliczać pieniążki
+
+    for size, count in TABLE_COUNTS.items():
+        # Inicjalizacja stołów
+        tables[size] = []
+        for _ in range(count):
+            table_info = {
+                'table_id': table_id_counter,
+                'capacity': size,
+                'used_seats': 0,       
+                'group_size': None,    # jaka grupa używa stołu, by ewentualnie grupa o tej samej ilości osób mogła się dosiąść
+            }
+            tables[size].append(table_info)
+            table_id_counter += 1
 
     def seat_customer_group(group_size):
         for size, table_list in tables.items():
