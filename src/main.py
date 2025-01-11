@@ -40,14 +40,22 @@ def manager_process(queue: Queue, close_event: Event):
             tables[size].append(table_info)
             table_id_counter += 1
 
+    # trzeba ustalić gdzie kto będzie siedział
     def seat_customer_group(group_size):
-        for size, table_list in tables.items():
+        for size in tables.keys():
             if size >= group_size:
-                for table in table_list:
-                    if table['group_size'] in (None, group_size) and table['capacity'] - table['used_seats'] >= group_size:
-                        table['used_seats'] += group_size
-                        table['group_size'] = group_size
-                        return table['table_id']
+                # Sprawdzamy czy nie ma wolnego miejsca przy stole gdzie ktoś już siedzi
+                for table in tables[size]:
+                    if table['group_size'] in (None, group_size):
+                        # No i oczywiście czy się zmieści ta grupa
+                        if table['capacity'] - table['used_seats'] >= group_size:
+                            # Jeśli wszystko się zgadza to zajmujemy miejsce
+                            seats_before = table['used_seats']
+                            table['used_seats'] += group_size
+                            if table['group_size'] is None:
+                                table['group_size'] = group_size
+                            seats_after = table['used_seats']
+                            return (table['table_id'], seats_before, seats_after)
         return None
     
     def handle_signal(signum, frame):
