@@ -87,65 +87,70 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event):
 
     try:
         while not close_event.is_set():
-            time.sleep(0.1)
+            if fire_event.is_set():
+                # Ewakuacja
+                flush_requests(queue)
+                print(f"[Manager] Pizzeria zamknięta na {CLOSURE_DURATION_AFTER_FIRE} sekund (pożar).")
+                time.sleep(CLOSURE_DURATION_AFTER_FIRE)
 
-            while not queue.empty():
-                try:
-                    msg = queue.get_nowait()
-                except:
+                print("[Manager] Otwieranie pizzerii po pożarze.")
+                pizzeria_open = True
+                fire_event.clear()
+                tables = initialize_tables()  # reset stolików możnaby zrobić
+                print("[Manager] Reinicjalizacja stolików zakończona.")
+
+
+            try:
+                msg_type, data = queue.get(timeout=0.1)
+            except queue_module.Empty:
+                continue
+
+            if msg_type == "REQUEST_SEAT":
+                group_size, customer_id = data
+                if not pizzeria_open:
+                    # Manager informuje klienktów by wyszli
+                    print(f"[Manager] Pizzeria zamknięta. Informowanie klienta {customer_id} by wyszedł.")
+                    queue.put(("REJECTED", customer_id))
                     continue
 
-                # msg to tuple (msg_type, data)
-                msg_type, data = msg
-
-                if msg_type == "REQUEST_SEAT":
-                    group_size, customer_id = data
-                    if fire_event.is_set():
-                        # Manager informuje klienktów by wyszli
-                        print(f"[Manager] Jest pożar. Informowanie klienta {customer_id} by wyszedł.")
-                        queue.put(("LEAVE", customer_id))
-                        continue
-
-                    seat_result = seat_customer_group(group_size)
-                    if seat_result:
-                        table_id, seats_before, seats_after = seat_result
-                        
-                        group_profit = group_size * 10 # na razie profit to rozmiar grupy * 10, może coś bardziej fancy wymyślę później
-                        total_profit += group_profit
-                        print(
-                            f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) "
-                            f"Stolik {table_id}, ilość miejsc zajętych przed:{seats_before} -> ilość miejsc zajętych teraz:{seats_after}. "
-                            f"Profit+={group_profit}, Całkowity profit={total_profit}"
-                        )
-                        queue.put(("SEATED", customer_id))
-                    else:
-                        print(
-                            f"[Manager] Klient {customer_id} nie mógł usiąść (ilość osób={group_size}). Brak miejsca."
-                        )
-                        queue.put(("REJECTED", customer_id))
-
-                elif msg_type == "CUSTOMER_DONE":
-                    # Grupa wychodzi, zwalniamy miejsca
-                    group_size, customer_id, table_id = data
-
-                    for size_arr in tables.values():
-                        for table in size_arr:
-                            if table['table_id'] == table_id:
-                                print(
-                                    f"[Manager] Klient {customer_id} wychodzi. Zwolniło się {group_size} miejsca ze stolika {table_id}."
-                                )
-                                table['used_seats'] -= group_size
-                                if table['used_seats'] == 0:
-                                    table['group_size'] = None
-                                break
-
+                seat_result = seat_customer_group(group_size)
+                if seat_result:
+                    table_id, seats_before, seats_after = seat_result
+                    
+                    group_profit = group_size * 10 # na razie profit to rozmiar grupy * 10, może coś bardziej fancy wymyślę później
+                    total_profit += group_profit
+                    print(
+                        f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) "
+                        f"Stolik {table_id}, ilość miejsc zajętych przed:{seats_before} -> ilość miejsc zajętych teraz:{seats_after}. "
+                        f"Profit+={group_profit}, Całkowity profit={total_profit}"
+                    )
+                    queue.put(("SEATED", customer_id))
                 else:
-                    print(f"[Manager] Nieznana wiadomość: {msg_type}, ignoruj.")
+                    print(
+                        f"[Manager] Klient {customer_id} nie mógł usiąść (ilość osób={group_size}). Brak miejsca."
+                    )
+                    queue.put(("REJECTED", customer_id))
+
+            elif msg_type == "CUSTOMER_DONE":
+                # Grupa wychodzi, zwalniamy miejsca
+                group_size, customer_id, table_id = data
+
+                for size_arr in tables.values():
+                    for table in size_arr:
+                        if table['table_id'] == table_id:
+                            print(
+                                f"[Manager] Klient {customer_id} wychodzi. Zwolniło się {group_size} miejsca ze stolika {table_id}."
+                            )
+                            table['used_seats'] -= group_size
+                            if table['used_seats'] < 0:
+                                table['used_seats'] = 0
+                            if table['used_seats'] == 0:
+                                table['group_size'] = None
+                            break
+
+            else:
+                print(f"[Manager] Nieznana wiadomość: {msg_type}, ignoruj.")
             
-            # Jeśli jest alarm przeciwpożarowy włączony a wszyscy wyszli to zamykamy kasę
-            if fire_event.is_set():
-                time.sleep(1)
-                close_event.set()
 
         # Na razie zamykamy i tyle, nie wznawiamy, testujemy czy to będzie działać
         print(f"[Manager] Pizzeria zamknięta. Całkowity profit = {total_profit}")
@@ -269,7 +274,7 @@ def main():
     # Strażak - start
     firefighter_proc = Process(
         target=firefighter_process,
-        args=(queue, fire_event, close_event),
+        args=(manager_pid, queue, fire_event, close_event),
         name="FirefighterProcess"
     )
     firefighter_proc.start()
