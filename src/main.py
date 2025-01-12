@@ -221,15 +221,28 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
 ###############################################################################
 # (Firefighter Process)
 ###############################################################################
-def firefighter_process(queue: Queue, fire_event: Event, close_event: Event):
+def firefighter_process(manager_pid: int, queue: Queue, fire_event: Event, close_event: Event):
+    print("[Firefighter] Rozpoczynanie. Będzie wysyłać sygnały co 30 - 60 sekund.")
     try:
-        delay = random.randint(30, 60)
-        print(f"[Firefighter] Pożar za {delay} sekund...")
-        time.sleep(delay)
-        
-        # później można zmienić na sygnał wysyłany do managera, na razie będzię wysyłany taki systemowy, ogólny sygnał
-        os.kill(os.getppid(), FIRE_SIGNAL)
-        print("[Firefighter] Wysyłanie sygnału pożaru.")
+        while not close_event.is_set():
+            delay = random.randint(30, 60)
+            print(f"[Firefighter] Następny pożar za ~{delay} sekund...")
+            time.sleep(delay)
+            if close_event.is_set():
+                break
+
+            # Wysyłanie sygnału do manager
+            try:
+                os.kill(manager_pid, FIRE_SIGNAL)
+                print("[Firefighter] Wysyłanie sygnału pożaru.")
+            except ProcessLookupError:
+                print("[Firefighter] Manager nie istnieje.")
+                break
+            except AttributeError:
+                # Jak SIGUSR1 nie zadziała
+                print("[Firefighter] Ustawianie fire_event.")
+                fire_event.set()
+
     except Exception as e:
         print("[Firefighter] ERROR:", e)
         traceback.print_exc()
@@ -252,6 +265,7 @@ def main():
         name="ManagerProcess"
     )
     manager_proc.start()
+    manager_pid = manager_proc.pid # będzie potrzebny do Firefighter
     
     # Strażak - start
     firefighter_proc = Process(
