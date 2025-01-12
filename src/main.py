@@ -174,35 +174,34 @@ def flush_requests(queue: Queue):
 # (Customer/Group Process)
 ###############################################################################
 def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_size: int, customer_id: int):
+    print(f"[Customer-{customer_id}] Klient (ilość osób={group_size}). Prośba o stolik.")
+    queue.put(("REQUEST_SEAT", (group_size, customer_id)))
+
+    table_id = None
+
     try:
-        print(f"[Customer-{customer_id}] Klient (ilość osób={group_size}). Prośba o stolik.")
-        queue.put(("REQUEST_SEAT", (group_size, customer_id)))
-
-        table_id = None
-
         while not close_event.is_set():
-            # Sprawdzamy czy nie ma pożaru przypadkiem
+            # Fire check
             if fire_event.is_set():
                 print(f"[Customer-{customer_id}] Pożar! Klient ucieka.")
                 return
 
-            # Klienci będą ustawiać się w kolejeczkę
-            time.sleep(0.1)
+            try:
+                msg_type, data = queue.get(timeout=0.1)
+            except queue_module.Empty:
+                continue
 
-            while not queue.empty():
-                msg_type, data = queue.get_nowait()
-                
-                if msg_type == "SEATED" and data == customer_id:
+            if data == customer_id:
+                if msg_type == "SEATED":
+                    table_id = random.randint(1000, 2000)# na razie takie, manager wie jakie stoliki są zajęte
                     print(f"[Customer-{customer_id}] Miejsce znalezione. Delektuje się pizzą...")
-
-                    table_id = 9999  # na razie takie, manager wie jakie stoliki są zajęte
-                    time.sleep(1 + random.random())  
+                    
+                    time.sleep(random.uniform(1.0, 3.0))
 
                     print(f"[Customer-{customer_id}] Pizza zjedzona. Klient wychodzi.")
-                    if table_id is not None:
-                        queue.put(("CUSTOMER_DONE", (group_size, customer_id, table_id)))
+                    queue.put(("CUSTOMER_DONE", (group_size, customer_id, table_id)))
                     return
-
+                
                 elif msg_type == "REJECTED" and data == customer_id:
                     print(f"[Customer-{customer_id}] Brak miejsc. Klient wychodzi.")
                     return
