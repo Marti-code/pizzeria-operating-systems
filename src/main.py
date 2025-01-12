@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 import os
-import sys
 import time
 import signal
 import random
 import traceback
-from multiprocessing import Process, Queue, Event, Manager, current_process
+import queue as queue_module
+from multiprocessing import Process, Queue, Event
 
 FIRE_SIGNAL = signal.SIGUSR1 if hasattr(signal, 'SIGUSR1') else signal.SIGINT
 SHUTDOWN_SIGNAL = signal.SIGINT
@@ -18,33 +18,36 @@ TABLE_COUNTS = {
     4: 2   # X4
 }
 
-NUM_CUSTOMERS = 5   # Liczba grup która się pojawi
-MAX_GROUP_SIZE = 3  # Grupa min 1 osoba, max 3 osoby
-SIMULATION_DURATION = 30  # testowo na razie symulacja będzie działać 30 sekund
-FIRE_RANDOM_DELAY = (5, 15)  # Alarm pożarowy losowo co <5,15> sekund
+# Grupa min 1 osoba, max 3 osoby
+MIN_GROUP_SIZE = 1  
+MAX_GROUP_SIZE = 3  
+CLOSURE_DURATION_AFTER_FIRE = 10 # na ile sekund pizzeria się zamyka po pożarze
 
 
 ###############################################################################
 # (Manager/Cashier Process)
 ###############################################################################
 def manager_process(queue: Queue, fire_event: Event, close_event: Event):
-    tables = {}
-    table_id_counter = 1
-
-    for size, count in TABLE_COUNTS.items():
-        # Inicjalizacja stołów
-        tables[size] = []
-        for _ in range(count):
-            table_info = {
-                'table_id': table_id_counter,
-                'capacity': size,
-                'used_seats': 0,       
-                'group_size': None,    # jaka grupa używa stołu, by ewentualnie grupa o tej samej ilości osób mogła się dosiąść
-            }
-            tables[size].append(table_info)
-            table_id_counter += 1
-
+    pizzeria_open = True
     total_profit = 0  # będziemy zliczać pieniążki
+
+    def initialize_tables():
+        tables = {}
+        table_id_counter = 1
+        for size, count in TABLE_COUNTS.items():
+            tables[size] = []
+            for _ in range(count):
+                tables[size].append({
+                    'table_id': table_id_counter,
+                    'capacity': size,
+                    'used_seats': 0,
+                    'group_size': None, # jaka grupa używa stołu, by ewentualnie grupa o tej samej ilości osób mogła się dosiąść
+                })
+                table_id_counter += 1
+        return tables
+
+    tables = initialize_tables()
+
 
     # trzeba ustalić gdzie kto będzie siedział
     def seat_customer_group(group_size):
@@ -53,23 +56,25 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event):
             if size >= group_size:
                 # Ewentualnie sprawdzamy czy nie ma wolnego miejsca przy stole gdzie ktoś już siedzi
                 for table in tables[size]:
+                    # No i oczywiście czy się zmieści ta grupa
                     if table['group_size'] in (None, group_size):
-                        # No i oczywiście czy się zmieści ta grupa
-                        if table['capacity'] - table['used_seats'] >= group_size:
+                        free = table['capacity'] - table['used_seats']
+                        if free >= group_size:
                             # Jeśli wszystko się zgadza to zajmujemy miejsce
-                            seats_before = table['used_seats']
+                            old_seats = table['used_seats']
                             table['used_seats'] += group_size
                             if table['group_size'] is None:
                                 table['group_size'] = group_size
-                            seats_after = table['used_seats']
-                            return (table['table_id'], seats_before, seats_after)
+                            return table['table_id'], old_seats, table['used_seats']
         return None
 
     # Sygnały
     def handle_signal(signum, frame):
+        nonlocal pizzeria_open
         if signum == FIRE_SIGNAL:
             print(f"[Manager] Otrzymałem sygnał pożaru. Ewakuacja pizzeri!")
             fire_event.set()
+            pizzeria_open = False
         elif signum == SHUTDOWN_SIGNAL:
             print(f"[Manager] Otrzymałem sygnał zakończenia symulacji. Zakańczanie symulacji.")
             close_event.set()
@@ -153,6 +158,18 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event):
         print("[Manager] Manager - proces się zakończył.")
 
 
+def flush_requests(queue: Queue):
+    while True:
+        try:
+            msg_type, data = queue.get_nowait()
+        except queue_module.Empty:
+            break
+        if msg_type == "REQUEST_SEAT":
+            _, customer_id = data
+            # zmuszamy klientów do wyjścia
+            queue.put(("LEAVE", customer_id))
+        # jeśli "CUSTOMER_DONE", to ignorujemy no bo i tak wychodzą
+
 ###############################################################################
 # (Customer/Group Process)
 ###############################################################################
@@ -206,7 +223,7 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
 ###############################################################################
 def firefighter_process(queue: Queue, fire_event: Event, close_event: Event):
     try:
-        delay = random.randint(*FIRE_RANDOM_DELAY)
+        delay = random.randint(30, 60)
         print(f"[Firefighter] Pożar za {delay} sekund...")
         time.sleep(delay)
         
@@ -235,19 +252,7 @@ def main():
         name="ManagerProcess"
     )
     manager_proc.start()
-
-    # Klienci - start
-    customer_procs = []
-    for i in range(NUM_CUSTOMERS):
-        group_size = random.randint(1, MAX_GROUP_SIZE)
-        p = Process(
-            target=customer_process,
-            args=(queue, fire_event, close_event, group_size, i),
-            name=f"Customer-{i}"
-        )
-        p.start()
-        customer_procs.append(p)
-
+    
     # Strażak - start
     firefighter_proc = Process(
         target=firefighter_process,
@@ -256,27 +261,54 @@ def main():
     )
     firefighter_proc.start()
 
-    start_time = time.time()
+    # Klienci - start
+    customer_procs = []
+    customer_id_counter = 0
 
     # Rozpoczynamy symulacje
-    while True:
-        time.sleep(0.5)
-        if close_event.is_set():
-            break
-        # Na razie jak minie 30 sekund to zakańczamy
-        if (time.time() - start_time) > SIMULATION_DURATION:
-            print("[Main] Koniec czasu.")
-            os.kill(manager_proc.pid, SHUTDOWN_SIGNAL)
-            break
+    try:
+        while True:
+            if close_event.is_set():
+                break
 
-    # Czekamy aż wszystkie procesy się zakończą
-    firefighter_proc.join()
-    for cp in customer_procs:
-        cp.join()
-    manager_proc.join()
+            group_size = random.randint(MIN_GROUP_SIZE, MAX_GROUP_SIZE)
+            p = Process(
+                target=customer_process,
+                args=(queue, fire_event, close_event, group_size, customer_id_counter),
+                name=f"Customer-{customer_id_counter}"
+            )
+            p.start()
+            customer_procs.append(p)
+            customer_id_counter += 1
 
-    print("[Main] Symulacja zakończona pomyślnie.")
+            # Wyczyść tych klientów którzy skończyli
+            alive = []
+            for cp in customer_procs:
+                if cp.is_alive():
+                    alive.append(cp)
+                else:
+                    cp.join()
+            customer_procs = alive
 
+            # Nowy klient co 1..3 sekundy
+            time.sleep(random.uniform(1.0, 3.0))
+
+    except KeyboardInterrupt:
+        print("\n[Main] Ctrl+C => zakańczanie.")
+        close_event.set()
+    except Exception as e:
+        print("[Main] ERROR:", e)
+        traceback.print_exc()
+        close_event.set()
+    finally:
+        # Czekamy aż wszystkie procesy się zakończą
+        print("[Main] Czekam na zakończenie wszystkich procesów...")
+        for cp in customer_procs:
+            cp.join()
+
+        firefighter_proc.join()
+        manager_proc.join()
+        print("[Main] Symulacja zakończona pomyślnie.")
 
 if __name__ == "__main__":
     main()
