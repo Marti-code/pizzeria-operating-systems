@@ -27,9 +27,14 @@ CLOSURE_DURATION_AFTER_FIRE = 10 # na ile sekund pizzeria się zamyka po pożarz
 ###############################################################################
 # (Manager/Cashier Process)
 ###############################################################################
-def manager_process(queue: Queue, fire_event: Event, close_event: Event):
+def manager_process(queue: Queue, fire_event: Event, close_event: Event, start_time: float):
     pizzeria_open = True
     total_profit = 0  # będziemy zliczać pieniążki
+
+    # dane do statystyk
+    group_accepted = {1: 0, 2: 0, 3: 0}
+    group_rejected = {1: 0, 2: 0, 3: 0} # tylko ci co nie mieli miejsca (pożar się nie liczy)
+    table_usage = {1: 0, 2: 0, 3: 0, 4: 0}
 
     def initialize_tables():
         tables = {}
@@ -65,7 +70,7 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event):
                             table['used_seats'] += group_size
                             if table['group_size'] is None:
                                 table['group_size'] = group_size
-                            return table['table_id'], old_seats, table['used_seats']
+                            return table['table_id'], old_seats, table['used_seats'], size
         return None
 
     # Sygnały
@@ -115,10 +120,16 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event):
 
                 seat_result = seat_customer_group(group_size)
                 if seat_result:
-                    table_id, seats_before, seats_after = seat_result
+                    table_id, seats_before, seats_after, table_size = seat_result
                     
                     group_profit = group_size * 10 # na razie profit to rozmiar grupy * 10, może coś bardziej fancy wymyślę później
                     total_profit += group_profit
+
+                    if group_size in group_accepted:
+                        group_accepted[group_size] += 1
+
+                    table_usage[table_size] += 1
+
                     print(
                         f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) "
                         f"Stolik {table_id}, ilość miejsc zajętych przed:{seats_before} -> ilość miejsc zajętych teraz:{seats_after}. "
@@ -129,6 +140,10 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event):
                     print(
                         f"[Manager] Klient {customer_id} nie mógł usiąść (ilość osób={group_size}). Brak miejsca."
                     )
+
+                    if group_size in group_rejected:
+                        group_rejected[group_size] += 1
+
                     queue.put(("REJECTED", customer_id))
 
             elif msg_type == "CUSTOMER_DONE":
@@ -160,6 +175,32 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event):
         print("[Manager] ERROR:", e)
         traceback.print_exc()
     finally:
+        try:
+            with open("pizzeria_log.txt", "a", encoding="utf-8") as f:
+                end_time = time.time()
+                simu_sec_count = end_time - start_time
+
+                f.write(f"\n=== Symulacja rozpoczęta o: {time.ctime(start_time)} ===\n")
+                f.write(f"=== Pizzeria zamknięta o {time.ctime(end_time)} ===\n")
+                f.write(f"=== Symulacja trwała: {simu_sec_count:.2f} sekund ===\n")
+
+                f.write("Całkowity profit: {}\n".format(total_profit))
+
+                f.write("\n--- Statystyki grup klientów ---\n")
+                for gsize in sorted(group_accepted.keys()):
+                    acc = group_accepted[gsize]
+                    rej = group_rejected[gsize]
+                    f.write(f"  Grupa rozmiaru {gsize}: przyjęta={acc}, odrzucona={rej}\n")
+
+                f.write("\n--- Statystyki stolików ---\n")
+                for tsize in sorted(table_usage.keys()):
+                    usage_count = table_usage[tsize]
+                    f.write(f"  Stolik rozmiaru {tsize}: {usage_count} razy zajęty\n")
+
+                f.write("=======================================\n\n")
+        except Exception as file_err:
+            print("[Manager] Błąd zapisu do pizzeria_log.txt:", file_err)
+
         print("[Manager] Manager - proces się zakończył.")
 
 
@@ -261,11 +302,13 @@ def main():
     queue = Queue()
     fire_event = Event()
     close_event = Event()
+    
+    start_time = time.time()
 
     # Manager - start
     manager_proc = Process(
         target=manager_process,
-        args=(queue, fire_event, close_event),
+        args=(queue, fire_event, close_event, start_time),
         name="ManagerProcess"
     )
     manager_proc.start()
