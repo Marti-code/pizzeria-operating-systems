@@ -5,7 +5,7 @@ import signal
 import random
 import traceback
 import queue as queue_module
-from multiprocessing import Process, Queue, Event
+from multiprocessing import Process, Queue, Event, Value, Lock
 
 FIRE_SIGNAL = signal.SIGUSR1 if hasattr(signal, 'SIGUSR1') else signal.SIGINT
 SHUTDOWN_SIGNAL = signal.SIGINT
@@ -23,18 +23,22 @@ MIN_GROUP_SIZE = 1
 MAX_GROUP_SIZE = 3  
 CLOSURE_DURATION_AFTER_FIRE = 10 # na ile sekund pizzeria się zamyka po pożarze
 
+RATIO_BUY_TABLES = 0.6 # Jeśli ACCEPTED:REJECTED jest 6:4 to manager kupuje nowe stoliki, bo za dużo osób jest odrzucanych
+RATIO_SPAWN_MORE = 0.9 # Jeśli ACCEPTED:REJECTED jest 9:1 to tworzone jest więcej klientów
+
 
 ###############################################################################
 # (Manager/Cashier Process)
 ###############################################################################
-def manager_process(queue: Queue, fire_event: Event, close_event: Event):
+def manager_process(queue: Queue, fire_event: Event, close_event: Event, accepted_count: Value, rejected_count: Value, table_counts_lock: Lock):
     pizzeria_open = True
     total_profit = 0  # będziemy zliczać pieniążki
+    local_table_counts = dict(TABLE_COUNTS) # jeśli manager kupi nowe stoliki to zaaktualizuje tą zmienną
 
     def initialize_tables():
         tables = {}
         table_id_counter = 1
-        for size, count in TABLE_COUNTS.items():
+        for size, count in local_table_counts.items():
             tables[size] = []
             for _ in range(count):
                 tables[size].append({
@@ -83,7 +87,7 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event):
     signal.signal(SHUTDOWN_SIGNAL, handle_signal)
 
     print("[Manager] Proces rozpoczęty.")
-    print("[Manager] Stoliki:", tables)
+    print("[Manager] Stoliki:", local_table_counts)
 
     try:
         while not close_event.is_set():
@@ -96,7 +100,7 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event):
                 print("[Manager] Otwieranie pizzerii po pożarze.")
                 pizzeria_open = True
                 fire_event.clear()
-                tables = initialize_tables()  # reset stolików możnaby zrobić
+                tables = initialize_tables() # Reinicjalizacja stolików (jakiekolwiek dokupione stoliki są w local_table_counts)
                 print("[Manager] Reinicjalizacja stolików zakończona.")
 
 
@@ -119,6 +123,10 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event):
                     
                     group_profit = group_size * 10 # na razie profit to rozmiar grupy * 10, może coś bardziej fancy wymyślę później
                     total_profit += group_profit
+
+                    with accepted_count.get_lock():
+                        accepted_count.value += 1
+
                     print(
                         f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) "
                         f"Stolik {table_id}, ilość miejsc zajętych przed:{seats_before} -> ilość miejsc zajętych teraz:{seats_after}. "
@@ -129,7 +137,28 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event):
                     print(
                         f"[Manager] Klient {customer_id} nie mógł usiąść (ilość osób={group_size}). Brak miejsca."
                     )
+
+                    with rejected_count.get_lock():
+                        rejected_count.value += 1
+
                     queue.put(("REJECTED", customer_id))
+
+                # Sprawdzamy czy kupić stoliki
+                accepted = accepted_count.value
+                rejected = rejected_count.value
+                total = accepted + rejected
+                if total > 0:
+                    ratio = accepted / total
+                    if ratio < RATIO_BUY_TABLES:
+                        # Na razie kupujemy jeden stolik randomowo, potem można dodać że stolik który jest najczęściej oblegany czy coś
+                        new_size = random.choice([1, 2, 3, 4])
+                        with table_counts_lock:  # updatujemy globalną zmienną
+                            local_table_counts[new_size] = local_table_counts.get(new_size, 0) + 1
+                        print(
+                            f"[Manager] Kupuję nowy stolik rozmiaru {new_size}."
+                            f" Nowa liczba stolików={local_table_counts}"
+                        )
+                        tables = initialize_tables()
 
             elif msg_type == "CUSTOMER_DONE":
                 # Grupa wychodzi, zwalniamy miejsca
@@ -262,10 +291,15 @@ def main():
     fire_event = Event()
     close_event = Event()
 
+    # Pamięć współdzielona
+    accepted_count = Value('i', 0) 
+    rejected_count = Value('i', 0)
+    table_counts_lock = Lock()
+
     # Manager - start
     manager_proc = Process(
         target=manager_process,
-        args=(queue, fire_event, close_event),
+        args=(queue, fire_event, close_event, accepted_count, rejected_count, table_counts_lock),
         name="ManagerProcess"
     )
     manager_proc.start()
@@ -289,6 +323,22 @@ def main():
             if close_event.is_set():
                 break
 
+            # Test czy rozwijanie pizzerii będzie działać
+            with accepted_count.get_lock(), rejected_count.get_lock():
+                a = accepted_count.value
+                r = rejected_count.value
+            total = a + r
+            if total > 0:
+                ratio = a / total
+            else:
+                ratio = 0.0
+
+            if ratio >= RATIO_SPAWN_MORE:
+                next_customer_delay = random.uniform(0.5, 1.0)
+            else:
+                next_customer_delay = random.uniform(1.0, 3.0)
+
+
             group_size = random.randint(MIN_GROUP_SIZE, MAX_GROUP_SIZE)
             p = Process(
                 target=customer_process,
@@ -309,7 +359,7 @@ def main():
             customer_procs = alive
 
             # Nowy klient co 1..3 sekundy
-            time.sleep(random.uniform(1.0, 3.0))
+            time.sleep(next_customer_delay)
 
     except KeyboardInterrupt:
         print("\n[Main] Ctrl+C => zakańczanie.")
