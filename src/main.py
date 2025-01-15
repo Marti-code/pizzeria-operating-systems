@@ -135,7 +135,7 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event, start_t
                         f"Stolik {table_id}, ilość miejsc zajętych przed:{seats_before} -> ilość miejsc zajętych teraz:{seats_after}. "
                         f"Profit+={group_profit}, Całkowity profit={total_profit}"
                     )
-                    queue.put(("SEATED", customer_id))
+                    queue.put(("SEATED", (customer_id, table_id)))  
                 else:
                     print(
                         f"[Manager] Klient {customer_id} nie mógł usiąść (ilość osób={group_size}). Brak miejsca."
@@ -223,8 +223,6 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
     print(f"[Customer-{customer_id}] Klient (ilość osób={group_size}). Prośba o stolik.")
     queue.put(("REQUEST_SEAT", (group_size, customer_id)))
 
-    table_id = None
-
     try:
         while not close_event.is_set():
             # Fire check
@@ -237,9 +235,10 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
             except queue_module.Empty:
                 continue
 
-            if data == customer_id:
-                if msg_type == "SEATED":
-                    table_id = random.randint(1000, 2000)# na razie takie, manager wie jakie stoliki są zajęte
+            if msg_type == "SEATED":
+                c_id, real_table_id = data
+                if c_id == customer_id:
+                    table_id = real_table_id
                     print(f"[Customer-{customer_id}] Miejsce znalezione. Delektuje się pizzą...")
                     
                     time.sleep(random.uniform(1.0, 3.0))
@@ -247,14 +246,18 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
                     print(f"[Customer-{customer_id}] Pizza zjedzona. Klient wychodzi.")
                     queue.put(("CUSTOMER_DONE", (group_size, customer_id, table_id)))
                     return
-                
-                elif msg_type == "REJECTED" and data == customer_id:
+
+            if msg_type == "REJECTED":
+                c_id = data
+                if c_id == customer_id:
                     print(f"[Customer-{customer_id}] Brak miejsc. Klient wychodzi.")
                     return
-
-                elif msg_type == "LEAVE" and data == customer_id:
+            elif msg_type == "LEAVE":
+                c_id = data
+                if c_id == customer_id:
                     print(f"[Customer-{customer_id}] Manager powiedział że jest pożar. Klient wychodzi.")
                     return
+
 
     except Exception as e:
         print(f"[Customer-{customer_id}] ERROR: {e}")
