@@ -6,6 +6,7 @@ import random
 import traceback
 import queue as queue_module
 from multiprocessing import Process, Queue, Event
+import threading
 
 FIRE_SIGNAL = signal.SIGUSR1 if hasattr(signal, 'SIGUSR1') else signal.SIGINT
 SHUTDOWN_SIGNAL = signal.SIGINT
@@ -22,6 +23,8 @@ TABLE_COUNTS = {
 MIN_GROUP_SIZE = 1  
 MAX_GROUP_SIZE = 3  
 CLOSURE_DURATION_AFTER_FIRE = 10 # na ile sekund pizzeria się zamyka po pożarze
+
+MAX_CONCURRENT_CUSTOMERS = 20 # nie mam dinero na nowego kompa więc trzeba sobie jakoś radzić
 
 
 ###############################################################################
@@ -219,6 +222,9 @@ def flush_requests(queue: Queue):
 ###############################################################################
 # (Customer/Group Process)
 ###############################################################################
+def person_in_group(thread_id: int):
+    print(f"    [Customer-thread {thread_id}] Jem...")
+
 def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_size: int, customer_id: int):
     print(f"[Customer-{customer_id}] Klient (ilość osób={group_size}). Prośba o stolik.")
     queue.put(("REQUEST_SEAT", (group_size, customer_id)))
@@ -241,6 +247,17 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
                     table_id = real_table_id
                     print(f"[Customer-{customer_id}] Miejsce znalezione. Delektuje się pizzą...")
                     
+                    # Każdy proces (grupa) ma wątki (osoby)
+                    threads = []
+                    for person_i in range(1, group_size + 1):
+                        t = threading.Thread(target=person_in_group, args=(person_i,))
+                        t.start()
+                        threads.append(t)
+
+                    # Czekamy aż wszyscy z grupy zjedzą
+                    for t in threads:
+                        t.join()
+
                     time.sleep(random.uniform(1.0, 3.0))
 
                     print(f"[Customer-{customer_id}] Pizza zjedzona. Klient wychodzi.")
@@ -331,9 +348,16 @@ def main():
 
     # Rozpoczynamy symulacje
     try:
-        while True:
-            if close_event.is_set():
-                break
+        while not close_event.is_set():
+            # Wyczyść tych klientów którzy skończyli
+            if len(customer_procs) >= MAX_CONCURRENT_CUSTOMERS:
+                alive = []
+                for cp in customer_procs:
+                    if cp.is_alive():
+                        alive.append(cp)
+                    else:
+                        cp.join()
+                customer_procs = alive
 
             group_size = random.randint(MIN_GROUP_SIZE, MAX_GROUP_SIZE)
             p = Process(
@@ -344,15 +368,6 @@ def main():
             p.start()
             customer_procs.append(p)
             customer_id_counter += 1
-
-            # Wyczyść tych klientów którzy skończyli
-            alive = []
-            for cp in customer_procs:
-                if cp.is_alive():
-                    alive.append(cp)
-                else:
-                    cp.join()
-            customer_procs = alive
 
             # Nowy klient co 1..3 sekundy
             time.sleep(random.uniform(1.0, 3.0))
