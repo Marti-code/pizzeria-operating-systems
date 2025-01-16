@@ -350,14 +350,17 @@ def main():
     try:
         while not close_event.is_set():
             # Wyczyść tych klientów którzy skończyli
+            alive = []
+            for cp in customer_procs:
+                if cp.is_alive():
+                    alive.append(cp)
+                else:
+                    cp.join()
+            customer_procs = alive
+
+            # limity bo CPU nie wydoli
             if len(customer_procs) >= MAX_CONCURRENT_CUSTOMERS:
-                alive = []
-                for cp in customer_procs:
-                    if cp.is_alive():
-                        alive.append(cp)
-                    else:
-                        cp.join()
-                customer_procs = alive
+                continue
 
             group_size = random.randint(MIN_GROUP_SIZE, MAX_GROUP_SIZE)
             p = Process(
@@ -369,8 +372,8 @@ def main():
             customer_procs.append(p)
             customer_id_counter += 1
 
-            # Nowy klient co 1..3 sekundy
-            time.sleep(random.uniform(1.0, 3.0))
+            # Nowy klient co 1..2 sekundy
+            time.sleep(random.uniform(1.0, 2.0))
 
     except KeyboardInterrupt:
         print("\n[Main] Ctrl+C => zakańczanie.")
