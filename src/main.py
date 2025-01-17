@@ -79,11 +79,38 @@ def gui_process(gui_queue: Queue, close_event: Event):
 
         circle_map[tbl['table_id']] = (c_id, t_id)
 
+    # Na razie sprawdzamy qui_queue co 100ms
+    def poll_queue():
+        while True:
+            try:
+                msg_type, data = gui_queue.get_nowait()
+            except queue_module.Empty:
+                break
+
+            if msg_type == "TABLE_UPDATE":
+                table_id, used_seats, capacity = data
+                # Aktualizujemy kolor i liczbe w kole
+                if table_id in circle_map:
+                    c_id, t_id = circle_map[table_id]
+                    fill_color = color_for_table(used_seats, capacity)
+                    canvas.itemconfig(c_id, fill=fill_color)
+                    canvas.itemconfig(t_id, text=f"ID:{table_id}\n{used_seats}/{capacity}")
+
+        if not close_event.is_set():
+            root.after(100, poll_queue)
+        else:
+            # Jak close_event no to zamykamy
+            root.destroy()
+
+    # start polling
+    root.after(100, poll_queue)
+
+    root.mainloop()
 
 ###############################################################################
 # (Manager/Cashier Process)
 ###############################################################################
-def manager_process(queue: Queue, fire_event: Event, close_event: Event, start_time: float):
+def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_event: Event, start_time: float):
     pizzeria_open = True
     total_profit = 0  # będziemy zliczać pieniążki
 
@@ -108,7 +135,6 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event, start_t
         return tables
 
     tables = initialize_tables()
-
 
     # trzeba ustalić gdzie kto będzie siedział
     def seat_customer_group(group_size):
@@ -157,7 +183,13 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event, start_t
                 print("[Manager] Otwieranie pizzerii po pożarze.")
                 pizzeria_open = True
                 fire_event.clear()
-                tables = initialize_tables()  # reset stolików możnaby zrobić
+                tables = initialize_tables()
+                
+                # jak reinicjalizacja stolików to i update gui
+                for size_list in tables.values():
+                    for t in size_list:
+                        gui_queue.put(("TABLE_UPDATE", (t['table_id'], 0, t['capacity'])))
+                
                 print("[Manager] Reinicjalizacja stolików zakończona.")
 
 
@@ -191,6 +223,9 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event, start_t
                         f"Stolik {table_id}, ilość miejsc zajętych przed:{seats_before} -> ilość miejsc zajętych teraz:{seats_after}. "
                         f"Profit+={group_profit}, Całkowity profit={total_profit}"
                     )
+
+                    # update GUI
+
                     queue.put(("SEATED", (customer_id, table_id)))  
                 else:
                     print(
@@ -217,6 +252,9 @@ def manager_process(queue: Queue, fire_event: Event, close_event: Event, start_t
                                 table['used_seats'] = 0
                             if table['used_seats'] == 0:
                                 table['group_size'] = None
+
+                            # update GUI
+                            
                             break
 
             else:
@@ -277,6 +315,7 @@ def flush_requests(queue: Queue):
 ###############################################################################
 def person_in_group(thread_id: int):
     print(f"    [Customer-thread {thread_id}] Jem...")
+    time.sleep(0.1)
 
 def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_size: int, customer_id: int):
     print(f"[Customer-{customer_id}] Klient (ilość osób={group_size}). Prośba o stolik.")
@@ -328,7 +367,8 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
                     print(f"[Customer-{customer_id}] Manager powiedział że jest pożar. Klient wychodzi.")
                     return
 
-
+    except KeyboardInterrupt:
+        print(f"[Customer-{customer_id}] KeyboardInterrupt => zakańczanie.")
     except Exception as e:
         print(f"[Customer-{customer_id}] ERROR: {e}")
         traceback.print_exc()
@@ -361,6 +401,8 @@ def firefighter_process(manager_pid: int, queue: Queue, fire_event: Event, close
                 print("[Firefighter] Ustawianie fire_event.")
                 fire_event.set()
 
+    except KeyboardInterrupt:
+        print("[Firefighter] KeyboardInterrupt => zakańczanie.")
     except Exception as e:
         print("[Firefighter] ERROR:", e)
         traceback.print_exc()
@@ -375,13 +417,15 @@ def main():
     queue = Queue()
     fire_event = Event()
     close_event = Event()
+
+    gui_queue = Queue()
     
     start_time = time.time()
 
     # Manager - start
     manager_proc = Process(
         target=manager_process,
-        args=(queue, fire_event, close_event, start_time),
+        args=(queue, gui_queue, fire_event, close_event, start_time),
         name="ManagerProcess"
     )
     manager_proc.start()
@@ -394,6 +438,14 @@ def main():
         name="FirefighterProcess"
     )
     firefighter_proc.start()
+
+    # GUI - start
+    gui_proc = Process(
+        target=gui_process,
+        args=(gui_queue, close_event),
+        name="GUIProcess"
+    )
+    gui_proc.start()
 
     # Klienci - start
     customer_procs = []
@@ -443,6 +495,7 @@ def main():
 
         firefighter_proc.join()
         manager_proc.join()
+        gui_proc.join()
         print("[Main] Symulacja zakończona pomyślnie.")
 
 if __name__ == "__main__":
