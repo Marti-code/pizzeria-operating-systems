@@ -152,7 +152,7 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                             table['used_seats'] += group_size
                             if table['group_size'] is None:
                                 table['group_size'] = group_size
-                            return table['table_id'], old_seats, table['used_seats'], size
+                            return table
         return None
 
     # Sygnały
@@ -206,27 +206,25 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                     queue.put(("REJECTED", customer_id))
                     continue
 
-                seat_result = seat_customer_group(group_size)
-                if seat_result:
-                    table_id, seats_before, seats_after, table_size = seat_result
-                    
+                tbl = seat_customer_group(group_size)
+                if tbl:                    
                     group_profit = group_size * 10 # na razie profit to rozmiar grupy * 10, może coś bardziej fancy wymyślę później
                     total_profit += group_profit
 
                     if group_size in group_accepted:
                         group_accepted[group_size] += 1
 
-                    table_usage[table_size] += 1
+                    table_usage[tbl['capacity']] += 1
 
                     print(
-                        f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) "
-                        f"Stolik {table_id}, ilość miejsc zajętych przed:{seats_before} -> ilość miejsc zajętych teraz:{seats_after}. "
+                        f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) przy stoliku {tbl['table_id']}"
                         f"Profit+={group_profit}, Całkowity profit={total_profit}"
                     )
 
                     # update GUI
+                    gui_queue.put(("TABLE_UPDATE", (tbl['table_id'], tbl['used_seats'], tbl['capacity'])))
 
-                    queue.put(("SEATED", (customer_id, table_id)))  
+                    queue.put(("SEATED", (customer_id, tbl['table_id'])))  
                 else:
                     print(
                         f"[Manager] Klient {customer_id} nie mógł usiąść (ilość osób={group_size}). Brak miejsca."
@@ -254,6 +252,7 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                                 table['group_size'] = None
 
                             # update GUI
+                            gui_queue.put(("TABLE_UPDATE", (table['table_id'], table['used_seats'], table['capacity'])))
                             
                             break
 
@@ -478,7 +477,7 @@ def main():
             customer_id_counter += 1
 
             # Nowy klient co 1..2 sekundy
-            time.sleep(random.uniform(1.0, 2.0))
+            time.sleep(random.uniform(0.1, 1.0))
 
     except KeyboardInterrupt:
         print("\n[Main] Ctrl+C => zakańczanie.")
