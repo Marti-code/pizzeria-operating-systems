@@ -7,6 +7,7 @@ import traceback
 import queue as queue_module
 from multiprocessing import Process, Queue, Event
 import threading
+import tkinter as tk # ty się dobrze zastanów czy ty chcesz to zrobić
 
 FIRE_SIGNAL = signal.SIGUSR1 if hasattr(signal, 'SIGUSR1') else signal.SIGINT
 SHUTDOWN_SIGNAL = signal.SIGINT
@@ -25,6 +26,58 @@ MAX_GROUP_SIZE = 3
 CLOSURE_DURATION_AFTER_FIRE = 10 # na ile sekund pizzeria się zamyka po pożarze
 
 MAX_CONCURRENT_CUSTOMERS = 20 # nie mam dinero na nowego kompa więc trzeba sobie jakoś radzić
+
+###############################################################################
+# GUI Process
+###############################################################################
+def gui_process(gui_queue: Queue, close_event: Event):
+    all_tables = []
+    table_id_counter = 1
+    for size, count in TABLE_COUNTS.items():
+        for _ in range(count):
+            all_tables.append({
+                'table_id': table_id_counter,
+                'capacity': size,
+                'used_seats': 0,
+            })
+            table_id_counter += 1
+
+    # table_id -> (circle_id, text_id)
+    circle_map = {}
+
+    root = tk.Tk()
+    root.title("Pizzeria Wizualizacja")
+
+    canvas = tk.Canvas(root, width=600, height=400, bg="white")
+    canvas.pack()
+
+    # Koła będą w gridzie
+    spacing_x = 80
+    spacing_y = 80
+    start_x = 60
+    start_y = 60
+    per_row = 5 
+
+    def color_for_table(used, cap):
+        if used == 0:
+            return "green" # wolne
+        elif used >= cap:
+            return "red" # zajęte
+        else:
+            return "orange" # częściowo zajęte
+
+    # Stoły reprezentowane przez koła
+    for i, tbl in enumerate(all_tables):
+        row = i // per_row
+        col = i % per_row
+        x = start_x + col * spacing_x
+        y = start_y + row * spacing_y
+        r = 20 
+
+        c_id = canvas.create_oval(x-r, y-r, x+r, y+r, fill="green", outline="black")
+        t_id = canvas.create_text(x, y, text=f"ID:{tbl['table_id']}\n0/{tbl['capacity']}")
+
+        circle_map[tbl['table_id']] = (c_id, t_id)
 
 
 ###############################################################################
