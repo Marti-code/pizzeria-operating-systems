@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import time
 import signal
@@ -42,21 +41,27 @@ def gui_process(gui_queue: Queue, close_event: Event):
             })
             table_id_counter += 1
 
-    # table_id -> (circle_id, text_id)
-    circle_map = {}
-
     root = tk.Tk()
     root.title("Pizzeria Wizualizacja")
 
-    canvas = tk.Canvas(root, width=600, height=400, bg="white")
+    root.configure(bg="#0a0a2b") # NAVY bg yess sir
+
+    # Zielony tekst na total_profit
+    profit_label = tk.Label(root, text="Total Profit: 0", fg="green", bg="#0a0a2b", font=("Arial", 14, "bold"))
+    profit_label.pack(pady=10)
+
+    canvas = tk.Canvas(root, width=400, height=300, bg="#0a0a2b", highlightthickness=0)
     canvas.pack()
 
+    # table_id -> (circle_id, text_id)
+    circle_map = {}
+
     # Koła będą w gridzie
-    spacing_x = 80
-    spacing_y = 80
+    spacing_x = 90
+    spacing_y = 90
     start_x = 60
     start_y = 60
-    per_row = 5 
+    per_row = 4 
 
     def color_for_table(used, cap):
         if used == 0:
@@ -72,10 +77,10 @@ def gui_process(gui_queue: Queue, close_event: Event):
         col = i % per_row
         x = start_x + col * spacing_x
         y = start_y + row * spacing_y
-        r = 20 
+        r = 30 
 
         c_id = canvas.create_oval(x-r, y-r, x+r, y+r, fill="green", outline="black")
-        t_id = canvas.create_text(x, y, text=f"ID:{tbl['table_id']}\n0/{tbl['capacity']}")
+        t_id = canvas.create_text(x, y, text=f"ID:{tbl['table_id']}\n0/{tbl['capacity']}", fill="white", font=("Arial", 10, "bold"))
 
         circle_map[tbl['table_id']] = (c_id, t_id)
 
@@ -95,7 +100,10 @@ def gui_process(gui_queue: Queue, close_event: Event):
                     fill_color = color_for_table(used_seats, capacity)
                     canvas.itemconfig(c_id, fill=fill_color)
                     canvas.itemconfig(t_id, text=f"ID:{table_id}\n{used_seats}/{capacity}")
-
+            elif msg_type == "PROFIT_UPDATE":
+                # data = total_profit
+                profit_label["text"] = f"Profit: {data}"
+                
         if not close_event.is_set():
             root.after(100, poll_queue)
         else:
@@ -210,6 +218,9 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                 if tbl:                    
                     group_profit = group_size * 10 # na razie profit to rozmiar grupy * 10, może coś bardziej fancy wymyślę później
                     total_profit += group_profit
+
+                    # update GUI    
+                    gui_queue.put(("PROFIT_UPDATE", total_profit))
 
                     if group_size in group_accepted:
                         group_accepted[group_size] += 1
@@ -466,7 +477,9 @@ def main():
             if len(customer_procs) >= MAX_CONCURRENT_CUSTOMERS:
                 continue
 
-            group_size = random.randint(MIN_GROUP_SIZE, MAX_GROUP_SIZE)
+            # group_size = random.randint(MIN_GROUP_SIZE, MAX_GROUP_SIZE)
+            group_size = random.choices([1, 2, 3], weights=[0.4, 0.4, 0.2])[0] # by częściej się pojawiały mniejsze grupy
+
             p = Process(
                 target=customer_process,
                 args=(queue, fire_event, close_event, group_size, customer_id_counter),
