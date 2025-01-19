@@ -103,6 +103,12 @@ def gui_process(gui_queue: Queue, close_event: Event):
             elif msg_type == "PROFIT_UPDATE":
                 # data = total_profit
                 profit_label["text"] = f"Profit: {data}"
+            elif msg_type == "TABLE_FIRE":
+                table_id = data
+                if table_id in circle_map:
+                    c_id, t_id = circle_map[table_id]
+                    canvas.itemconfig(c_id, fill="black")
+                    canvas.itemconfig(t_id, text=f"ID:{table_id}\nPOŻAR")
                 
         if not close_event.is_set():
             root.after(100, poll_queue)
@@ -186,6 +192,11 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                 # Ewakuacja
                 flush_requests(queue)
                 print(f"[Manager] Pizzeria zamknięta na {CLOSURE_DURATION_AFTER_FIRE} sekund (pożar).")
+
+                for size_list in tables.values():
+                    for t in size_list:
+                        gui_queue.put(("TABLE_FIRE", t['table_id']))
+
                 time.sleep(CLOSURE_DURATION_AFTER_FIRE)
 
                 print("[Manager] Otwieranie pizzerii po pożarze.")
@@ -265,8 +276,7 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                             gui_queue.put(("TABLE_UPDATE", (table['table_id'], table['used_seats'], table['capacity'])))
                             
                             break
-            
-        # Na razie zamykamy i tyle, nie wznawiamy, testujemy czy to będzie działać
+
         print(f"[Manager] Pizzeria zamknięta. Całkowity profit = {total_profit}")
         print("[Manager] Manager - zakańczanie.")
 
@@ -488,7 +498,6 @@ def main():
                     customer_procs = new_list
                     time.sleep(0.05)
 
-            # group_size = random.randint(MIN_GROUP_SIZE, MAX_GROUP_SIZE)
             group_size = random.choices([1, 2, 3], weights=[0.4, 0.4, 0.2])[0] # by częściej się pojawiały mniejsze grupy
 
             p = Process(
@@ -500,7 +509,7 @@ def main():
             customer_procs.append(p)
             customer_id_counter += 1
 
-            # Nowy klient co 1..2 sekundy
+            # Nowy klient co 0.5..1 sekundy
             time.sleep(random.uniform(0.5, 1.0))
 
     except KeyboardInterrupt:
