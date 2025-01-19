@@ -50,7 +50,7 @@ def gui_process(gui_queue: Queue, close_event: Event):
     profit_label = tk.Label(root, text="Total Profit: 0", fg="green", bg="#0a0a2b", font=("Arial", 14, "bold"))
     profit_label.pack(pady=10)
 
-    canvas = tk.Canvas(root, width=400, height=300, bg="#0a0a2b", highlightthickness=0)
+    canvas = tk.Canvas(root, width=380, height=300, bg="#0a0a2b", highlightthickness=0)
     canvas.pack()
 
     # table_id -> (circle_id, text_id)
@@ -79,7 +79,7 @@ def gui_process(gui_queue: Queue, close_event: Event):
         y = start_y + row * spacing_y
         r = 30 
 
-        c_id = canvas.create_oval(x-r, y-r, x+r, y+r, fill="green", outline="black")
+        c_id = canvas.create_oval(x-r, y-r, x+r, y+r, fill="green", outline="#0a0a2b")
         t_id = canvas.create_text(x, y, text=f"ID:{tbl['table_id']}\n0/{tbl['capacity']}", fill="white", font=("Arial", 10, "bold"))
 
         circle_map[tbl['table_id']] = (c_id, t_id)
@@ -200,7 +200,6 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                 
                 print("[Manager] Reinicjalizacja stolików zakończona.")
 
-
             try:
                 msg_type, data = queue.get(timeout=0.1)
             except queue_module.Empty:
@@ -214,9 +213,9 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                     queue.put(("REJECTED", customer_id))
                     continue
 
-                tbl = seat_customer_group(group_size)
+                tbl = seat_customer_group(group_size) # jak None to reject, jak nie to udało się usiąść
                 if tbl:                    
-                    group_profit = group_size * 10 # na razie profit to rozmiar grupy * 10, może coś bardziej fancy wymyślę później
+                    group_profit = group_size * random.randint(10,25) # bardzo fancy żeś wymyśliła nie ma co
                     total_profit += group_profit
 
                     # update GUI    
@@ -228,7 +227,7 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                     table_usage[tbl['capacity']] += 1
 
                     print(
-                        f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) przy stoliku {tbl['table_id']}"
+                        f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) przy stoliku {tbl['table_id']} "
                         f"Profit+={group_profit}, Całkowity profit={total_profit}"
                     )
 
@@ -266,11 +265,7 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                             gui_queue.put(("TABLE_UPDATE", (table['table_id'], table['used_seats'], table['capacity'])))
                             
                             break
-
-            else:
-                print(f"[Manager] Nieznana wiadomość: {msg_type}, ignoruj.")
             
-
         # Na razie zamykamy i tyle, nie wznawiamy, testujemy czy to będzie działać
         print(f"[Manager] Pizzeria zamknięta. Całkowity profit = {total_profit}")
         print("[Manager] Manager - zakańczanie.")
@@ -323,9 +318,9 @@ def flush_requests(queue: Queue):
 ###############################################################################
 # (Customer/Group Process)
 ###############################################################################
-def person_in_group(thread_id: int):
-    print(f"    [Customer-thread {thread_id}] Jem...")
-    time.sleep(0.1)
+def person_in_group(thread_id: int, customer_id: int):
+    print(f"    [Customer-{customer_id} thread-{thread_id}] Jem...")
+    time.sleep(3)
 
 def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_size: int, customer_id: int):
     print(f"[Customer-{customer_id}] Klient (ilość osób={group_size}). Prośba o stolik.")
@@ -352,7 +347,7 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
                     # Każdy proces (grupa) ma wątki (osoby)
                     threads = []
                     for person_i in range(1, group_size + 1):
-                        t = threading.Thread(target=person_in_group, args=(person_i,))
+                        t = threading.Thread(target=person_in_group, args=(person_i,customer_id))
                         t.start()
                         threads.append(t)
 
@@ -360,10 +355,11 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
                     for t in threads:
                         t.join()
 
-                    time.sleep(random.uniform(1.0, 3.0))
+                    # time.sleep(random.uniform(1.0, 3.0))
 
                     print(f"[Customer-{customer_id}] Pizza zjedzona. Klient wychodzi.")
                     queue.put(("CUSTOMER_DONE", (group_size, customer_id, table_id)))
+
                     return
 
             if msg_type == "REJECTED":
@@ -390,10 +386,10 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
 # (Firefighter Process)
 ###############################################################################
 def firefighter_process(manager_pid: int, queue: Queue, fire_event: Event, close_event: Event):
-    print("[Firefighter] Rozpoczynanie. Będzie wysyłać sygnały co 30 - 60 sekund.")
+    print("[Firefighter] Rozpoczynanie. Będzie wysyłać sygnały co 15 - 30 sekund.")
     try:
         while not close_event.is_set():
-            delay = random.randint(30, 60)
+            delay = random.randint(30, 45)
             print(f"[Firefighter] Następny pożar za ~{delay} sekund...")
             time.sleep(delay)
             if close_event.is_set():
@@ -401,7 +397,8 @@ def firefighter_process(manager_pid: int, queue: Queue, fire_event: Event, close
 
             # Wysyłanie sygnału do manager
             try:
-                os.kill(manager_pid, FIRE_SIGNAL)
+                # os.kill(manager_pid, FIRE_SIGNAL) # na windows nie zadziała bo ACCESS DENIED
+                fire_event.set()
                 print("[Firefighter] Wysyłanie sygnału pożaru.")
             except ProcessLookupError:
                 print("[Firefighter] Manager nie istnieje.")
@@ -464,7 +461,7 @@ def main():
     # Rozpoczynamy symulacje
     try:
         while not close_event.is_set():
-            # Wyczyść tych klientów którzy skończyli
+            # Wyczyść tych klientów którzy skończyli, by sprawdzać tylko ile jest aktywnych
             alive = []
             for cp in customer_procs:
                 if cp.is_alive():
@@ -473,9 +470,23 @@ def main():
                     cp.join()
             customer_procs = alive
 
+            if fire_event.is_set():
+                print("[Main] Jest pożar, nowi klienci nie są generowani.")
+                while fire_event.is_set() and not close_event.is_set():
+                    time.sleep(0.1)
+                continue
+
             # limity bo CPU nie wydoli
             if len(customer_procs) >= MAX_CONCURRENT_CUSTOMERS:
-                continue
+                while len(customer_procs) >= MAX_CONCURRENT_CUSTOMERS and not close_event.is_set():
+                    new_list = []
+                    for cp in customer_procs:
+                        if cp.is_alive():
+                            new_list.append(cp)
+                        else:
+                            cp.join()
+                    customer_procs = new_list
+                    time.sleep(0.05)
 
             # group_size = random.randint(MIN_GROUP_SIZE, MAX_GROUP_SIZE)
             group_size = random.choices([1, 2, 3], weights=[0.4, 0.4, 0.2])[0] # by częściej się pojawiały mniejsze grupy
@@ -490,7 +501,7 @@ def main():
             customer_id_counter += 1
 
             # Nowy klient co 1..2 sekundy
-            time.sleep(random.uniform(0.1, 1.0))
+            time.sleep(random.uniform(0.5, 1.0))
 
     except KeyboardInterrupt:
         print("\n[Main] Ctrl+C => zakańczanie.")
