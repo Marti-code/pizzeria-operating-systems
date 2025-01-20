@@ -93,4 +93,10 @@ def gui_process(gui_queue: Queue, close_event: Event):
     # start polling
     root.after(100, poll_queue)
 
-    root.mainloop()
+
+    try:
+        root.mainloop()
+    except KeyboardInterrupt:
+        print("[GUI] KeyboardInterrupt => Zakańczanie...")
+        close_event.set()
+        root.destroy()

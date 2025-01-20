@@ -98,6 +98,12 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                 msg_type, data = queue.get(timeout=0.1)
             except queue_module.Empty:
                 continue
+            except InterruptedError:
+                print("[Manager] Proces przerwany => Zakańczanie...")
+                break
+            except KeyboardInterrupt:
+                print("[Manager] KeyboardInterrupt => Zakańczanie...")
+                break
 
             if msg_type == "REQUEST_SEAT":
                 group_size, customer_id = data
