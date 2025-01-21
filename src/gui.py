@@ -3,6 +3,14 @@ from multiprocessing import Queue, Event
 from config import TABLE_COUNTS
 import queue as queue_module
 
+"""
+Moduł GUI:
+- tworzy interfejs graficzny
+- odpowiednio maluje stoły na czerwono jeśli są całkowicie zajęte, żółto jeśli po części, zielono jeśli są wolne
+- maluje stoły na czarno gdy jest pożar
+- wyświetla dotychczasowy profit
+"""
+
 def gui_process(gui_queue: Queue, close_event: Event):
     all_tables = []
     table_id_counter = 1
@@ -18,7 +26,7 @@ def gui_process(gui_queue: Queue, close_event: Event):
     root = tk.Tk()
     root.title("Pizzeria Wizualizacja")
 
-    root.configure(bg="#0a0a2b") # NAVY bg yess sir
+    root.configure(bg="#0a0a2b") # tło okienka
 
     # Zielony tekst na total_profit
     profit_label = tk.Label(root, text="Total Profit: 0", fg="green", bg="#0a0a2b", font=("Arial", 14, "bold"))
@@ -58,7 +66,7 @@ def gui_process(gui_queue: Queue, close_event: Event):
 
         circle_map[tbl['table_id']] = (c_id, t_id)
 
-    # Na razie sprawdzamy qui_queue co 100ms
+    # Na razie sprawdzamy gui_queue co 100ms
     def poll_queue():
         while True:
             try:
@@ -90,9 +98,7 @@ def gui_process(gui_queue: Queue, close_event: Event):
             # Jak close_event no to zamykamy
             root.destroy()
 
-    # start polling
     root.after(100, poll_queue)
-
 
     try:
         root.mainloop()

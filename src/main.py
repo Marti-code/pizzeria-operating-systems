@@ -8,6 +8,15 @@ import time
 import traceback
 import random
 
+"""
+Moduł main:
+- tworzy kolejkę (Queue) do komunikacji
+- uruchamia procesy: Manager, Firefighter, GUI
+- w pętli tworzy procesy-Klientów (customer_process)
+- nadzoruje liczbę aktywnych klientów (MAX_CONCURRENT_CUSTOMERS)
+- reaguje na sygnał pożaru (fire_event) wstrzymując generowanie nowych klientów
+- obsługuje zakończenie poprzez KeyboardInterrupt lub close_event
+"""
 
 def main():
     queue = Queue()
@@ -25,7 +34,7 @@ def main():
         name="ManagerProcess"
     )
     manager_proc.start()
-    manager_pid = manager_proc.pid # będzie potrzebny do Firefighter
+    manager_pid = manager_proc.pid # będzie potrzebny by Firefighter mógł przesłać sygnał do Manager
     
     # Strażak - start
     firefighter_proc = Process(
@@ -59,6 +68,7 @@ def main():
                     cp.join()
             customer_procs = alive
 
+            # wstrzymaj generowanie nowych klientów jeśli jest pożar
             if fire_event.is_set():
                 print("[Main] Jest pożar, nowi klienci nie są generowani.")
                 while fire_event.is_set() and not close_event.is_set():
@@ -79,6 +89,7 @@ def main():
 
             group_size = random.choices([1, 2, 3], weights=[0.4, 0.4, 0.2])[0] # by częściej się pojawiały mniejsze grupy
 
+            # generowanie klientów
             p = Process(
                 target=customer_process,
                 args=(queue, fire_event, close_event, group_size, customer_id_counter),

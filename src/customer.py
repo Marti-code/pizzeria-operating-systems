@@ -4,22 +4,39 @@ import traceback
 from multiprocessing import Queue, Event
 import queue as queue_module
 
+"""
+Moduł customer: 
+- person_in_group() – funkcja wątku symulującego jedną osobę przy stole
+- customer_process() – główna funkcja procesu klienta, który komunikuje się z Managerem przez kolejkę i reaguje na event pożaru
+"""
+
 
 def person_in_group(thread_id: int, customer_id: int):
     print(f"    [Customer-{customer_id} thread-{thread_id}] Jem...")
     time.sleep(5)
 
 def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_size: int, customer_id: int):
+    
+    """
+    1. Wysyła ("REQUEST_SEAT", (group_size, customer_id)) do managera, by poprosić o stolik
+    2. Czeka na "SEATED", "LEAVE" lub "REJECTED" z kolejki
+    3. Jeśli "SEATED", tworzy wątki (person_in_group) dla każdej osoby w grupie
+       Każdy wątek 'je' (sleep). Następnie wysyła ("CUSTOMER_DONE", ...) do managera
+    4. Jeśli "REJECTED", kończy proces a klient 'wychodzi'
+    5. Jeśli "LEAVE" (pożar) lub fire_event.is_set() – klient 'ucieka'
+    """
+
     print(f"[Customer-{customer_id}] Klient (ilość osób={group_size}). Prośba o stolik.")
     queue.put(("REQUEST_SEAT", (group_size, customer_id)))
 
     try:
         while not close_event.is_set():
-            # Fire check
+            # Reakcja na pożar
             if fire_event.is_set():
                 print(f"[Customer-{customer_id}] Pożar! Klient ucieka.")
                 return
 
+            # Odbieranie komunikatów z kolejki
             try:
                 msg_type, data = queue.get(timeout=0.1)
             except queue_module.Empty:

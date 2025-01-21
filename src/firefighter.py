@@ -3,6 +3,11 @@ import random
 import traceback
 from multiprocessing import Queue, Event
 
+"""
+Moduł firefighter:
+- wywołuje pożary w pizzerii co pewien losowy czas
+"""
+
 def firefighter_process(manager_pid: int, queue: Queue, fire_event: Event, close_event: Event):
     print("[Firefighter] Rozpoczynanie. Będzie wysyłać sygnały co 15 - 30 sekund.")
     try:
@@ -22,7 +27,7 @@ def firefighter_process(manager_pid: int, queue: Queue, fire_event: Event, close
                 print("[Firefighter] Manager nie istnieje.")
                 break
             except AttributeError:
-                # Jak SIGUSR1 nie zadziała
+                # Zabezpieczenie jak SIGUSR1 nie zadziała
                 print("[Firefighter] Ustawianie fire_event.")
                 fire_event.set()
 

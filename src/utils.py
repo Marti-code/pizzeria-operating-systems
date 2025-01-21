@@ -1,6 +1,7 @@
 from multiprocessing import Queue
 import queue as queue_module
 
+# czyścimy żądania
 def flush_requests(queue: Queue):
     while True:
         try:
