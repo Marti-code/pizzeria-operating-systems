@@ -22,7 +22,7 @@ def firefighter_process(manager_pid: int, queue: Queue, fire_event: Event, close
             try:
                 # os.kill(manager_pid, FIRE_SIGNAL) # na windows nie zadziała bo ACCESS DENIED
                 fire_event.set()
-                print("[Firefighter] Wysyłanie sygnału pożaru.")
+                print("[Firefighter] Wysyłanie sygnału pożaru.", flush=True)
             except ProcessLookupError:
                 print("[Firefighter] Manager nie istnieje.")
                 break

@@ -122,7 +122,7 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                     for t in size_list:
                         gui_queue.put(("TABLE_UPDATE", (t['table_id'], 0, t['capacity'])))
                 
-                print("[Manager] Reinicjalizacja stolików zakończona.")
+                print("[Manager] Reinicjalizacja stolików zakończona.", flush=True)
 
             # Próbujemy odebrać wiadomość od klientów z kolejki
             try:

@@ -99,6 +99,8 @@ def main():
             customer_procs.append(p)
             customer_id_counter += 1
 
+            print(f"[Main] Obecnie CustomerProcs={len(customer_procs)} aktywnych.") # do testów
+
             # Nowy klient co 0.5..1 sekundy
             time.sleep(random.uniform(0.5, 1))
 
