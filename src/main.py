@@ -105,7 +105,7 @@ def main():
 
 
             # Nowy klient co 0.5..1 sekundy
-            time.sleep(random.uniform(0.5, 1))
+            # time.sleep(random.uniform(0.1, 0.3))
 
     except KeyboardInterrupt:
         print("\n[Main] Ctrl+C => zakańczanie.")

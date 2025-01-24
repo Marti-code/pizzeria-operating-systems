@@ -147,7 +147,7 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                 if not pizzeria_open:
                     # Manager informuje klienktów by wyszli
                     print(f"[Manager] Pizzeria zamknięta. Informowanie klienta {customer_id} by wyszedł.")
-                    queue.put(("REJECTED", customer_id))
+                    queue.put(("REJECTED", (customer_id,)))
                     continue
 
                 tbl = seat_customer_group(group_size) # jak None to reject, jak nie to udało się usiąść
@@ -186,7 +186,7 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                         group_rejected[group_size] += 1
 
                     # wysyłamy do klienta że nie ma stolika
-                    queue.put(("REJECTED", customer_id))
+                    queue.put(("REJECTED", (customer_id,)))
 
             elif msg_type == "CUSTOMER_DONE":
                 # Grupa wychodzi, zwalniamy miejsca

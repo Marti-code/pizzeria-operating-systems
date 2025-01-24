@@ -16,4 +16,4 @@ MIN_GROUP_SIZE = 1
 MAX_GROUP_SIZE = 3  
 CLOSURE_DURATION_AFTER_FIRE = 10 # na ile sekund pizzeria się zamyka po pożarze
 
-MAX_CONCURRENT_CUSTOMERS = 8986 # limity aktywnych na raz klientów
+MAX_CONCURRENT_CUSTOMERS = 30 # limity aktywnych na raz klientów
