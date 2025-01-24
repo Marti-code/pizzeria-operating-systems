@@ -6,6 +6,7 @@ import traceback
 from multiprocessing import Queue, Event
 import queue as queue_module
 import random
+from setproctitle import setproctitle
 
 """
 Moduł manager: główny proces zarządzający pizzerią.
@@ -21,6 +22,7 @@ Odpowiedzialności:
 """
 
 def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_event: Event, start_time: float):
+    setproctitle("ManagerProcess")
     pizzeria_open = True
     total_profit = 0  # będziemy zliczać pieniążki
 
@@ -95,6 +97,7 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
 
     print("[Manager] Proces rozpoczęty.")
     print("[Manager] Stoliki:", tables)
+    
 
     try:
         while not close_event.is_set():
@@ -109,10 +112,10 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                         gui_queue.put(("TABLE_FIRE", t['table_id']))
 
                 # Zamykamy pizzerię na ustalony czas
-                time.sleep(CLOSURE_DURATION_AFTER_FIRE)
+                # time.sleep(CLOSURE_DURATION_AFTER_FIRE)
 
                 # Ponowne otwarcie po pożarze
-                print("[Manager] Otwieranie pizzerii po pożarze.")
+                print("[Manager] Otwieranie pizzerii po pożarze.", flush=True)
                 pizzeria_open = True
                 fire_event.clear()
                 tables = initialize_tables()
@@ -122,11 +125,12 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                     for t in size_list:
                         gui_queue.put(("TABLE_UPDATE", (t['table_id'], 0, t['capacity'])))
                 
-                print("[Manager] Reinicjalizacja stolików zakończona.", flush=True)
+                print("[Manager] Reinicjalizacja stolików zakończona.")
 
             # Próbujemy odebrać wiadomość od klientów z kolejki
             try:
                 msg_type, data = queue.get(timeout=0.1)
+                print(f"Manger zbiera z kolejki: {msg_type}, {data}")
             except queue_module.Empty:
                 continue
             except InterruptedError:
@@ -163,7 +167,7 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
 
                     print(
                         f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) przy stoliku {tbl['table_id']} "
-                        f"Profit+={group_profit}, Całkowity profit={total_profit}"
+                        f"Profit+={group_profit}, Całkowity profit={total_profit}", flush=True
                     )
 
                     # update GUI o ilości osób przy stoliku
@@ -174,7 +178,7 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                 else:
                     # Brak miejsca => REJECT
                     print(
-                        f"[Manager] Klient {customer_id} nie mógł usiąść (ilość osób={group_size}). Brak miejsca."
+                        f"[Manager] Klient {customer_id} nie mógł usiąść (ilość osób={group_size}). Brak miejsca.", flush=True
                     )
 
                     # Statystyki do pliku
@@ -193,7 +197,7 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                     for table in size_arr:
                         if table['table_id'] == table_id:
                             print(
-                                f"[Manager] Klient {customer_id} wychodzi. Zwolniło się {group_size} miejsca ze stolika {table_id}."
+                                f"[Manager] Klient {customer_id} wychodzi. Zwolniło się {group_size} miejsca ze stolika {table_id}.", flush=True
                             )
                             # Aktualizujemy liczbę zajętych miejsc
                             table['used_seats'] -= group_size

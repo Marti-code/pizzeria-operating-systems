@@ -2,6 +2,7 @@ import tkinter as tk
 from multiprocessing import Queue, Event
 from config import TABLE_COUNTS
 import queue as queue_module
+from setproctitle import setproctitle
 
 """
 Moduł GUI:
@@ -12,6 +13,7 @@ Moduł GUI:
 """
 
 def gui_process(gui_queue: Queue, close_event: Event):
+    setproctitle(f"GUIProcess")
     all_tables = []
     table_id_counter = 1
     for size, count in TABLE_COUNTS.items():
@@ -93,12 +95,12 @@ def gui_process(gui_queue: Queue, close_event: Event):
                     canvas.itemconfig(t_id, text=f"ID:{table_id}\nPOŻAR")
                 
         if not close_event.is_set():
-            root.after(100, poll_queue)
+            root.after(10, poll_queue)
         else:
             # Jak close_event no to zamykamy
             root.destroy()
 
-    root.after(100, poll_queue)
+    root.after(10, poll_queue)
 
     try:
         root.mainloop()

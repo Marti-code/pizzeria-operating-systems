@@ -2,6 +2,7 @@ import time
 import random
 import traceback
 from multiprocessing import Queue, Event
+from setproctitle import setproctitle
 
 """
 Moduł firefighter:
@@ -9,10 +10,11 @@ Moduł firefighter:
 """
 
 def firefighter_process(manager_pid: int, queue: Queue, fire_event: Event, close_event: Event):
+    setproctitle(f"FirefighterProcess")
     print("[Firefighter] Rozpoczynanie. Będzie wysyłać sygnały co 15 - 30 sekund.")
     try:
         while not close_event.is_set():
-            delay = random.randint(30, 45)
+            delay = random.randint(5,10)
             print(f"[Firefighter] Następny pożar za ~{delay} sekund...")
             time.sleep(delay)
             if close_event.is_set():

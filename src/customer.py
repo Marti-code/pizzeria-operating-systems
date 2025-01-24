@@ -3,6 +3,8 @@ import threading
 import traceback
 from multiprocessing import Queue, Event
 import queue as queue_module
+from setproctitle import setproctitle
+import os
 
 """
 Moduł customer: 
@@ -13,7 +15,7 @@ Moduł customer:
 
 def person_in_group(thread_id: int, customer_id: int):
     print(f"    [Customer-{customer_id} thread-{thread_id}] Jem...")
-    time.sleep(5)
+    # time.sleep(5)
 
 def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_size: int, customer_id: int):
     
@@ -25,7 +27,8 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
     4. Jeśli "REJECTED", kończy proces a klient 'wychodzi'
     5. Jeśli "LEAVE" (pożar) lub fire_event.is_set() – klient 'ucieka'
     """
-
+    
+    setproctitle(f"CustomerProcess-{customer_id}-pid({os.getpid()})")
     print(f"[Customer-{customer_id}] Klient (ilość osób={group_size}). Prośba o stolik.")
     queue.put(("REQUEST_SEAT", (group_size, customer_id)))
 
@@ -38,12 +41,15 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
 
             # Odbieranie komunikatów z kolejki
             try:
-                msg_type, data = queue.get(timeout=0.1)
+                msg_type, data = queue.get_nowait()
+                print(f"Klient{customer_id} zbiera z kolejki: {msg_type}, {data}")
             except queue_module.Empty:
                 continue
 
             if msg_type == "SEATED":
                 c_id, real_table_id = data
+                print(f"customer_id = {data[0]}")
+                print(f"customer_id = {customer_id}")
                 if c_id == customer_id:
                     table_id = real_table_id
                     print(f"[Customer-{customer_id}] Miejsce znalezione. Delektuje się pizzą...")
@@ -68,14 +74,20 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
 
             if msg_type == "REJECTED":
                 c_id = data
+                print(f"customer_id = {c_id}")
+                print(f"customer_id = {customer_id}")
                 if c_id == customer_id:
                     print(f"[Customer-{customer_id}] Brak miejsc. Klient wychodzi.")
                     return
             elif msg_type == "LEAVE":
                 c_id = data
+                print(f"customer_id = {c_id}")
+                print(f"customer_id = {customer_id}")
                 if c_id == customer_id:
                     print(f"[Customer-{customer_id}] Manager powiedział że jest pożar. Klient wychodzi.")
                     return
+            else:
+                continue
 
     except KeyboardInterrupt:
         print(f"[Customer-{customer_id}] KeyboardInterrupt => zakańczanie.")

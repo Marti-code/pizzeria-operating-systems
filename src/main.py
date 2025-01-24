@@ -72,7 +72,8 @@ def main():
             if fire_event.is_set():
                 print("[Main] Jest pożar, nowi klienci nie są generowani.")
                 while fire_event.is_set() and not close_event.is_set():
-                    time.sleep(0.1)
+                    # time.sleep(0.1)
+                    pass
                 continue
 
             # limity bo CPU nie wydoli
@@ -85,7 +86,9 @@ def main():
                         else:
                             cp.join()
                     customer_procs = new_list
-                    time.sleep(0.05)
+                    # time.sleep(0.05)
+
+            print(f"[Main] Obecnie CustomerProcs={len(customer_procs)} aktywnych.", flush=True) # do testów
 
             group_size = random.choices([1, 2, 3], weights=[0.4, 0.4, 0.2])[0] # by częściej się pojawiały mniejsze grupy
 
@@ -99,10 +102,9 @@ def main():
             customer_procs.append(p)
             customer_id_counter += 1
 
-            print(f"[Main] Obecnie CustomerProcs={len(customer_procs)} aktywnych.") # do testów
 
             # Nowy klient co 0.5..1 sekundy
-            time.sleep(random.uniform(0.5, 1))
+            # time.sleep(random.uniform(0.5, 1))
 
     except KeyboardInterrupt:
         print("\n[Main] Ctrl+C => zakańczanie.")
