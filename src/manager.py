@@ -145,7 +145,7 @@ def manager_process(gui_queue: Queue, fire_event: Event, close_event: Event, sta
                             continue
 
                         # Format: "client_fifo_name:REQUEST_SEAT group_size customer_id"
-                        #    lub: "client_fifo_name:CUSTOMER_DONE group_size customer_id"
+                        #    lub: "client_fifo_name:CUSTOMER_DONE group_size table_id"
                         try:
                             fifo_part, message_part = line.split(":", 1)
                         except ValueError:
@@ -170,6 +170,7 @@ def manager_process(gui_queue: Queue, fire_event: Event, close_event: Event, sta
                             tbl = seat_customer_group(group_size)
 
                             if tbl:
+                                table_id = tbl['table_id']
                                 # Udało się usiąść => SEATED     
                                 group_profit = group_size * random.randint(10,25)
                                 total_profit += group_profit
@@ -184,15 +185,15 @@ def manager_process(gui_queue: Queue, fire_event: Event, close_event: Event, sta
                                 table_usage[tbl['capacity']] += 1
 
                                 print(
-                                    f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) przy stoliku {tbl['table_id']} "
+                                    f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) przy stoliku {table_id} "
                                     f"Profit+={group_profit}, Całkowity profit={total_profit}", flush=True
                                 )
 
                                 # update GUI o ilości osób przy stoliku
-                                gui_queue.put(("TABLE_UPDATE", (tbl['table_id'], tbl['used_seats'], tbl['capacity'])))
+                                gui_queue.put(("TABLE_UPDATE", (table_id, tbl['used_seats'], tbl['capacity'])))
 
                                 with open(client_fifo, "w") as cf:
-                                    cf.write(f"SEATED {group_size} {customer_id}\n")
+                                    cf.write(f"SEATED {group_size} {table_id}\n")
                             else:
                                 print(
                                     f"[Manager] Klient {customer_id} nie mógł usiąść (ilość osób={group_size}). Brak miejsca.", flush=True
@@ -206,11 +207,25 @@ def manager_process(gui_queue: Queue, fire_event: Event, close_event: Event, sta
                                     cf.write(f"REJECTED {group_size} {customer_id}\n")
 
                         elif msg_type == "CUSTOMER_DONE":
-                            # seats_in_use -= group_size
-                            # if seats_in_use < 0:
-                            #     seats_in_use = 0
-                            # print(f"[Manager] Freed seats from cust={customer_id}, seats_in_use={seats_in_use}")
-                            print(f"[Manager] Freed seats from cust={customer_id}")
+                            # Szukamy "tego" stolika w 'tables'
+                            for size_arr in tables.values():
+                                for table in size_arr:
+                                    if table['table_id'] == table_id:
+                                        print(
+                                            f"[Manager] Zwolniło się {group_size} miejsca ze stolika {table_id}.", flush=True
+                                        )
+                                        # Aktualizujemy liczbę zajętych miejsc
+                                        table['used_seats'] -= group_size
+                                        if table['used_seats'] < 0:
+                                            table['used_seats'] = 0
+                                        # Jeśli stolik jest całkowicie pusty, resetujemy group_size
+                                        if table['used_seats'] == 0:
+                                            table['group_size'] = None
+                                        
+                                        # update GUI
+                                        gui_queue.put(("TABLE_UPDATE", (table['table_id'], table['used_seats'], table['capacity'])))
+                                        
+                                        break
 
                         else:
                             print("[Manager] Nieznana wiadomość msg_type:", msg_type)

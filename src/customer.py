@@ -72,7 +72,7 @@ def customer_process( fire_event: Event, close_event: Event, group_size: int, cu
                 for t in threads:
                     t.join()
 
-                done_line = f"{my_fifo}:CUSTOMER_DONE {group_size} {customer_id}\n"
+                done_line = f"{my_fifo}:CUSTOMER_DONE {group_size} {tokens[2]}\n"
                 with open(SERVER_FIFO, "w") as sf:
                     sf.write(done_line)
                     sf.flush()
