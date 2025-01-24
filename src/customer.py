@@ -1,10 +1,12 @@
 import time
 import threading
+from config import SERVER_FIFO
 import traceback
 from multiprocessing import Queue, Event
 import queue as queue_module
 from setproctitle import setproctitle
 import os
+import sys
 
 """
 Moduł customer: 
@@ -17,7 +19,7 @@ def person_in_group(thread_id: int, customer_id: int):
     print(f"    [Customer-{customer_id} thread-{thread_id}] Jem...")
     # time.sleep(5)
 
-def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_size: int, customer_id: int):
+def customer_process( fire_event: Event, close_event: Event, group_size: int, customer_id: int):
     
     """
     1. Wysyła ("REQUEST_SEAT", (group_size, customer_id)) do managera, by poprosić o stolik
@@ -30,7 +32,15 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
     
     setproctitle(f"CustomerProcess-{customer_id}-pid({os.getpid()})")
     print(f"[Customer-{customer_id}] Klient (ilość osób={group_size}). Prośba o stolik.")
-    queue.put(("REQUEST_SEAT", (group_size, customer_id)))
+    
+    my_fifo = f"Customer_fifo_{customer_id}"
+    if not os.path.exists(my_fifo):
+        os.mkfifo(my_fifo)
+
+    req_line = f"{my_fifo}:REQUEST_SEAT {group_size} {customer_id}\n"
+    with open(SERVER_FIFO, "w") as sf:
+        sf.write(req_line)
+        sf.flush()
 
     try:
         while not close_event.is_set():
@@ -41,55 +51,42 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
 
             # Odbieranie komunikatów z kolejki
             try:
-                msg_type, data = queue.get_nowait()
-                print(f"Klient{customer_id} zbiera z kolejki: {msg_type}, {data}")
+                with open(my_fifo, "r") as cf:
+                    resp_line = cf.readline().strip()
+                tokens = resp_line.split()
+                resp_type = tokens[0]
             except queue_module.Empty:
                 continue
 
-            if msg_type not in ["SEATED", "REJECTED", "LEAVE"]:
-                queue.put((msg_type, data))
-                continue
+            if resp_type == "SEATED":
+                print(f"[Customer-{customer_id}] Miejsce znalezione. Delektuje się pizzą...")
+                
+                # Każdy proces (grupa) ma wątki (osoby)
+                threads = []
+                for person_i in range(1, group_size + 1):
+                    t = threading.Thread(target=person_in_group, args=(person_i,customer_id))
+                    t.start()
+                    threads.append(t)
 
-            if data[0] == customer_id:
-                if msg_type == "SEATED":
-                    c_id, real_table_id = data
-                    print(f"customer_id = {data[0]}")
-                    print(f"customer_id = {customer_id}")
-                    if c_id == customer_id:
-                        table_id = real_table_id
-                        print(f"[Customer-{customer_id}] Miejsce znalezione. Delektuje się pizzą...")
-                        
-                        # Każdy proces (grupa) ma wątki (osoby)
-                        threads = []
-                        for person_i in range(1, group_size + 1):
-                            t = threading.Thread(target=person_in_group, args=(person_i,customer_id))
-                            t.start()
-                            threads.append(t)
+                # Czekamy aż wszyscy z grupy zjedzą
+                for t in threads:
+                    t.join()
 
-                        # Czekamy aż wszyscy z grupy zjedzą
-                        for t in threads:
-                            t.join()
+                done_line = f"{my_fifo}:CUSTOMER_DONE {group_size} {customer_id}\n"
+                with open(SERVER_FIFO, "w") as sf:
+                    sf.write(done_line)
+                    sf.flush()
 
-                        print(f"[Customer-{customer_id}] Pizza zjedzona. Klient wychodzi.")
-                        queue.put(("CUSTOMER_DONE", (group_size, customer_id, table_id)))
-
-                        return
-                elif msg_type == "REJECTED":
-                    c_id = data[0]
-                    print(f"customer_id = {c_id}")
-                    print(f"customer_id = {customer_id}")
-                    if c_id == customer_id:
-                        print(f"[Customer-{customer_id}] Brak miejsc. Klient wychodzi.")
-                        return
-                elif msg_type == "LEAVE":
-                    c_id = data[0]
-                    print(f"customer_id = {c_id}")
-                    print(f"customer_id = {customer_id}")
-                    if c_id == customer_id:
-                        print(f"[Customer-{customer_id}] Manager powiedział że jest pożar. Klient wychodzi.")
-                        return
-            else:
-                queue.put((msg_type, data))
+                print(f"[Customer-{customer_id}] Pizza zjedzona. Klient wychodzi.")
+                return
+            
+            elif resp_type == "REJECTED":
+                print(f"[Customer-{customer_id}] Brak miejsc. Klient wychodzi.")
+                return
+                    
+            elif resp_type == "LEAVE":
+                print(f"[Customer-{customer_id}] Manager powiedział że jest pożar. Klient wychodzi.")
+                return
 
     except KeyboardInterrupt:
         print(f"[Customer-{customer_id}] KeyboardInterrupt => zakańczanie.")

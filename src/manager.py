@@ -1,4 +1,4 @@
-from config import TABLE_COUNTS, FIRE_SIGNAL, SHUTDOWN_SIGNAL, CLOSURE_DURATION_AFTER_FIRE
+from config import TABLE_COUNTS, FIRE_SIGNAL, SHUTDOWN_SIGNAL, CLOSURE_DURATION_AFTER_FIRE, SERVER_FIFO
 from utils import flush_requests
 import signal
 import time
@@ -7,6 +7,8 @@ from multiprocessing import Queue, Event
 import queue as queue_module
 import random
 from setproctitle import setproctitle
+import os
+import sys
 
 """
 Moduł manager: główny proces zarządzający pizzerią.
@@ -21,7 +23,7 @@ Odpowiedzialności:
 7. Przy zakończeniu (close_event) lub sygnale SHUTDOWN_SIGNAL, loguje statystyki do pliku (pizzeria_log.txt) i kończy działanie
 """
 
-def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_event: Event, start_time: float):
+def manager_process(gui_queue: Queue, fire_event: Event, close_event: Event, start_time: float):
     setproctitle("ManagerProcess")
     pizzeria_open = True
     total_profit = 0  # będziemy zliczać pieniążki
@@ -97,13 +99,16 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
 
     print("[Manager] Proces rozpoczęty.")
     print("[Manager] Stoliki:", tables)
-    
 
+    try:
+        os.mkfifo(SERVER_FIFO)
+    except FileExistsError:
+        pass
+    
     try:
         while not close_event.is_set():
             if fire_event.is_set():
                 # Ewakuacja
-                flush_requests(queue)
                 print(f"[Manager] Pizzeria zamknięta na {CLOSURE_DURATION_AFTER_FIRE} sekund (pożar).")
 
                 # Powiadamiamy GUI, że stoliki mają być 'czarne' (TABLE_FIRE)
@@ -129,8 +134,86 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
 
             # Próbujemy odebrać wiadomość od klientów z kolejki
             try:
-                msg_type, data = queue.get(timeout=0.1)
-                print(f"Manger zbiera z kolejki: {msg_type}, {data}")
+                with open(SERVER_FIFO, "r") as f:
+                    while True:
+                        line = f.readline()
+                        if not line:
+                            break
+
+                        line = line.strip()
+                        if not line:
+                            continue
+
+                        # Format: "client_fifo_name:REQUEST_SEAT group_size customer_id"
+                        #    lub: "client_fifo_name:CUSTOMER_DONE group_size customer_id"
+                        try:
+                            fifo_part, message_part = line.split(":", 1)
+                        except ValueError:
+                            print("[Manager] Ignorowanie wiadomości w złym formacie:", line)
+                            continue
+
+                        client_fifo = fifo_part.strip()
+                        msg_tokens = message_part.strip().split()
+                        if len(msg_tokens) < 3:
+                            print("[Manager] Ignorowanie niepełnej wiadomości:", msg_tokens)
+                            continue
+                        msg_type = msg_tokens[0]
+                        group_size = int(msg_tokens[1])
+                        customer_id = msg_tokens[2]
+
+                        if msg_type == "REQUEST_SEAT":
+                            if not pizzeria_open:
+                                print(f"[Manager] Pizzeria zamknięta. Informowanie klienta {customer_id} by wyszedł.")
+                                with open(client_fifo, "w") as cf:
+                                    cf.write(f"REJECTED {group_size} {customer_id}\n")
+                                continue
+                            tbl = seat_customer_group(group_size)
+
+                            if tbl:
+                                # Udało się usiąść => SEATED     
+                                group_profit = group_size * random.randint(10,25)
+                                total_profit += group_profit
+
+                                # Informacja do GUI o wzroście zysku
+                                gui_queue.put(("PROFIT_UPDATE", total_profit))
+
+                                # Statystyki do pliku
+                                if group_size in group_accepted:
+                                    group_accepted[group_size] += 1
+
+                                table_usage[tbl['capacity']] += 1
+
+                                print(
+                                    f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) przy stoliku {tbl['table_id']} "
+                                    f"Profit+={group_profit}, Całkowity profit={total_profit}", flush=True
+                                )
+
+                                # update GUI o ilości osób przy stoliku
+                                gui_queue.put(("TABLE_UPDATE", (tbl['table_id'], tbl['used_seats'], tbl['capacity'])))
+
+                                with open(client_fifo, "w") as cf:
+                                    cf.write(f"SEATED {group_size} {customer_id}\n")
+                            else:
+                                print(
+                                    f"[Manager] Klient {customer_id} nie mógł usiąść (ilość osób={group_size}). Brak miejsca.", flush=True
+                                )
+
+                                # Statystyki do pliku
+                                if group_size in group_rejected:
+                                    group_rejected[group_size] += 1
+
+                                with open(client_fifo, "w") as cf:
+                                    cf.write(f"REJECTED {group_size} {customer_id}\n")
+
+                        elif msg_type == "CUSTOMER_DONE":
+                            # seats_in_use -= group_size
+                            # if seats_in_use < 0:
+                            #     seats_in_use = 0
+                            # print(f"[Manager] Freed seats from cust={customer_id}, seats_in_use={seats_in_use}")
+                            print(f"[Manager] Freed seats from cust={customer_id}")
+
+                        else:
+                            print("[Manager] Nieznana wiadomość msg_type:", msg_type)
             except queue_module.Empty:
                 continue
             except InterruptedError:
@@ -140,79 +223,11 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                 print("[Manager] KeyboardInterrupt => Zakańczanie...")
                 break
 
-            # Obsługa rodzaju wiadomości
-            if msg_type == "REQUEST_SEAT":
-                # Klient prosi o stolik
-                group_size, customer_id = data
-                if not pizzeria_open:
-                    # Manager informuje klienktów by wyszli
-                    print(f"[Manager] Pizzeria zamknięta. Informowanie klienta {customer_id} by wyszedł.")
-                    queue.put(("REJECTED", (customer_id,)))
-                    continue
-
-                tbl = seat_customer_group(group_size) # jak None to reject, jak nie to udało się usiąść
-                if tbl:
-                    # Udało się usiąść => SEATED     
-                    group_profit = group_size * random.randint(10,25)
-                    total_profit += group_profit
-
-                    # Informacja do GUI o wzroście zysku
-                    gui_queue.put(("PROFIT_UPDATE", total_profit))
-
-                    # Statystyki do pliku
-                    if group_size in group_accepted:
-                        group_accepted[group_size] += 1
-
-                    table_usage[tbl['capacity']] += 1
-
-                    print(
-                        f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) przy stoliku {tbl['table_id']} "
-                        f"Profit+={group_profit}, Całkowity profit={total_profit}", flush=True
-                    )
-
-                    # update GUI o ilości osób przy stoliku
-                    gui_queue.put(("TABLE_UPDATE", (tbl['table_id'], tbl['used_seats'], tbl['capacity'])))
-
-                    # wysyłamy do klienta że ma stolik
-                    queue.put(("SEATED", (customer_id, tbl['table_id'])))  
-                else:
-                    # Brak miejsca => REJECT
-                    print(
-                        f"[Manager] Klient {customer_id} nie mógł usiąść (ilość osób={group_size}). Brak miejsca.", flush=True
-                    )
-
-                    # Statystyki do pliku
-                    if group_size in group_rejected:
-                        group_rejected[group_size] += 1
-
-                    # wysyłamy do klienta że nie ma stolika
-                    queue.put(("REJECTED", (customer_id,)))
-
-            elif msg_type == "CUSTOMER_DONE":
-                # Grupa wychodzi, zwalniamy miejsca
-                group_size, customer_id, table_id = data
-
-                # Szukamy "tego" stolika w 'tables'
-                for size_arr in tables.values():
-                    for table in size_arr:
-                        if table['table_id'] == table_id:
-                            print(
-                                f"[Manager] Klient {customer_id} wychodzi. Zwolniło się {group_size} miejsca ze stolika {table_id}.", flush=True
-                            )
-                            # Aktualizujemy liczbę zajętych miejsc
-                            table['used_seats'] -= group_size
-                            if table['used_seats'] < 0:
-                                table['used_seats'] = 0
-                            # Jeśli stolik jest całkowicie pusty, resetujemy group_size
-                            if table['used_seats'] == 0:
-                                table['group_size'] = None
-
-                            # update GUI
-                            gui_queue.put(("TABLE_UPDATE", (table['table_id'], table['used_seats'], table['capacity'])))
-                            
-                            break
-
         # Koniec pętli – zamykamy pizzerię
+        try:
+            os.remove(SERVER_FIFO)
+        except:
+            pass
         print(f"[Manager] Pizzeria zamknięta. Całkowity profit = {total_profit}")
         print("[Manager] Manager - zakańczanie.")
 

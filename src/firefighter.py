@@ -9,7 +9,7 @@ Moduł firefighter:
 - wywołuje pożary w pizzerii co pewien losowy czas
 """
 
-def firefighter_process(manager_pid: int, queue: Queue, fire_event: Event, close_event: Event):
+def firefighter_process(manager_pid: int, fire_event: Event, close_event: Event):
     setproctitle(f"FirefighterProcess")
     print("[Firefighter] Rozpoczynanie. Będzie wysyłać sygnały co 30 - 45 sekund.")
     try:

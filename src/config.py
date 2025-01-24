@@ -2,6 +2,7 @@ import signal
 
 FIRE_SIGNAL = signal.SIGUSR1 if hasattr(signal, 'SIGUSR1') else signal.SIGINT
 SHUTDOWN_SIGNAL = signal.SIGINT
+SERVER_FIFO = "manager_fifo"
 
 # Stoliki: X1, X2, X3, X4
 TABLE_COUNTS = {

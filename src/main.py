@@ -1,4 +1,4 @@
-from multiprocessing import Process, Queue, Event, set_start_method
+from multiprocessing import Process, Queue, Event, set_start_method, Manager
 from config import MAX_CONCURRENT_CUSTOMERS, CLOSURE_DURATION_AFTER_FIRE
 from manager import manager_process
 from firefighter import firefighter_process
@@ -7,6 +7,7 @@ from customer import customer_process
 import time
 import traceback
 import random
+import os
 
 """
 Moduł main:
@@ -19,8 +20,7 @@ Moduł main:
 """
 
 def main():
-    set_start_method("spawn") # potrzebne by obejść automatyczne dziedziczenie desktyptorów przez procesy potomne
-    queue = Queue()
+    # set_start_method("spawn") # potrzebne by obejść automatyczne dziedziczenie desktyptorów przez procesy potomne
     fire_event = Event()
     close_event = Event()
 
@@ -31,7 +31,7 @@ def main():
     # Manager - start
     manager_proc = Process(
         target=manager_process,
-        args=(queue, gui_queue, fire_event, close_event, start_time),
+        args=(gui_queue, fire_event, close_event, start_time),
         name="ManagerProcess"
     )
     manager_proc.start()
@@ -40,7 +40,7 @@ def main():
     # Strażak - start
     firefighter_proc = Process(
         target=firefighter_process,
-        args=(manager_pid, queue, fire_event, close_event),
+        args=(manager_pid, fire_event, close_event),
         name="FirefighterProcess"
     )
     firefighter_proc.start()
@@ -96,7 +96,7 @@ def main():
             # generowanie klientów
             p = Process(
                 target=customer_process,
-                args=(queue, fire_event, close_event, group_size, customer_id_counter),
+                args=(fire_event, close_event, group_size, customer_id_counter),
                 name=f"Customer-{customer_id_counter}"
             )
             p.start()
@@ -120,8 +120,11 @@ def main():
         for cp in customer_procs:
             cp.join()
 
+        firefighter_proc.terminate()
         firefighter_proc.join()
         manager_proc.join()
+        manager_proc.terminate()
+        gui_proc.terminate()
         gui_proc.join()
         print("[Main] Symulacja zakończona pomyślnie.")
 
