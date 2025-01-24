@@ -120,11 +120,8 @@ def main():
         for cp in customer_procs:
             cp.join()
 
-        firefighter_proc.terminate()
         firefighter_proc.join()
         manager_proc.join()
-        manager_proc.terminate()
-        gui_proc.terminate()
         gui_proc.join()
         print("[Main] Symulacja zakończona pomyślnie.")
 

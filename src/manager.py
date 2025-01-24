@@ -250,7 +250,6 @@ def manager_process(gui_queue: Queue, fire_event: Event, close_event: Event, sta
     except Exception as e:
         print("[Manager] ERROR:", e)
         traceback.print_exc()
-        os.remove(SERVER_FIFO)
     finally:
         # Na końcu zapisujemy statystyki do pliku
         try:

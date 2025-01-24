@@ -55,6 +55,7 @@ def customer_process( fire_event: Event, close_event: Event, group_size: int, cu
                     resp_line = cf.readline().strip()
                 tokens = resp_line.split()
                 resp_type = tokens[0]
+                table_id = tokens[2]
             except queue_module.Empty:
                 continue
 
@@ -72,7 +73,7 @@ def customer_process( fire_event: Event, close_event: Event, group_size: int, cu
                 for t in threads:
                     t.join()
 
-                done_line = f"{my_fifo}:CUSTOMER_DONE {group_size} {tokens[2]}\n"
+                done_line = f"{my_fifo}:CUSTOMER_DONE {group_size} {table_id}\n"
                 with open(SERVER_FIFO, "w") as sf:
                     sf.write(done_line)
                     sf.flush()
@@ -93,11 +94,12 @@ def customer_process( fire_event: Event, close_event: Event, group_size: int, cu
 
     except KeyboardInterrupt:
         print(f"[Customer-{customer_id}] KeyboardInterrupt => zakańczanie.")
-        os.remove(my_fifo)
+        if os.path.exists(my_fifo):
+            os.remove(my_fifo)
     except Exception as e:
         print(f"[Customer-{customer_id}] ERROR: {e}")
         traceback.print_exc()
-        os.remove(my_fifo)
     finally:
         print(f"[Customer-{customer_id}] Zakańczanie.")
-        os.remove(my_fifo)
+        if os.path.exists(my_fifo):
+            os.remove(my_fifo)
