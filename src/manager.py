@@ -243,12 +243,14 @@ def manager_process(gui_queue: Queue, fire_event: Event, close_event: Event, sta
             os.remove(SERVER_FIFO)
         except:
             pass
+
         print(f"[Manager] Pizzeria zamknięta. Całkowity profit = {total_profit}")
         print("[Manager] Manager - zakańczanie.")
 
     except Exception as e:
         print("[Manager] ERROR:", e)
         traceback.print_exc()
+        os.remove(SERVER_FIFO)
     finally:
         # Na końcu zapisujemy statystyki do pliku
         try:

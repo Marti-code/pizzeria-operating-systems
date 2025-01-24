@@ -78,20 +78,26 @@ def customer_process( fire_event: Event, close_event: Event, group_size: int, cu
                     sf.flush()
 
                 print(f"[Customer-{customer_id}] Pizza zjedzona. Klient wychodzi.")
+                os.remove(my_fifo)
                 return
             
             elif resp_type == "REJECTED":
                 print(f"[Customer-{customer_id}] Brak miejsc. Klient wychodzi.")
+                os.remove(my_fifo)
                 return
                     
             elif resp_type == "LEAVE":
                 print(f"[Customer-{customer_id}] Manager powiedział że jest pożar. Klient wychodzi.")
+                os.remove(my_fifo)
                 return
 
     except KeyboardInterrupt:
         print(f"[Customer-{customer_id}] KeyboardInterrupt => zakańczanie.")
+        os.remove(my_fifo)
     except Exception as e:
         print(f"[Customer-{customer_id}] ERROR: {e}")
         traceback.print_exc()
+        os.remove(my_fifo)
     finally:
         print(f"[Customer-{customer_id}] Zakańczanie.")
+        os.remove(my_fifo)
