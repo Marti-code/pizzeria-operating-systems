@@ -11,10 +11,10 @@ Moduł firefighter:
 
 def firefighter_process(manager_pid: int, queue: Queue, fire_event: Event, close_event: Event):
     setproctitle(f"FirefighterProcess")
-    print("[Firefighter] Rozpoczynanie. Będzie wysyłać sygnały co 15 - 30 sekund.")
+    print("[Firefighter] Rozpoczynanie. Będzie wysyłać sygnały co 30 - 45 sekund.")
     try:
         while not close_event.is_set():
-            delay = random.randint(5,10)
+            delay = random.randint(30,45)
             print(f"[Firefighter] Następny pożar za ~{delay} sekund...")
             time.sleep(delay)
             if close_event.is_set():

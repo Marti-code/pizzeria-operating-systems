@@ -112,7 +112,7 @@ def manager_process(queue: Queue, gui_queue: Queue, fire_event: Event, close_eve
                         gui_queue.put(("TABLE_FIRE", t['table_id']))
 
                 # Zamykamy pizzerię na ustalony czas
-                # time.sleep(CLOSURE_DURATION_AFTER_FIRE)
+                time.sleep(CLOSURE_DURATION_AFTER_FIRE)
 
                 # Ponowne otwarcie po pożarze
                 print("[Manager] Otwieranie pizzerii po pożarze.", flush=True)

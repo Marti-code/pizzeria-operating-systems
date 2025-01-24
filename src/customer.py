@@ -15,7 +15,7 @@ Moduł customer:
 
 def person_in_group(thread_id: int, customer_id: int):
     print(f"    [Customer-{customer_id} thread-{thread_id}] Jem...")
-    # time.sleep(5)
+    time.sleep(5)
 
 def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_size: int, customer_id: int):
     
@@ -41,7 +41,7 @@ def customer_process(queue: Queue, fire_event: Event, close_event: Event, group_
 
             # Odbieranie komunikatów z kolejki
             try:
-                msg_type, data = queue.get_nowait()
+                msg_type, data = queue.get(timeout=0.1)
                 print(f"Klient{customer_id} zbiera z kolejki: {msg_type}, {data}")
             except queue_module.Empty:
                 continue

@@ -95,12 +95,12 @@ def gui_process(gui_queue: Queue, close_event: Event):
                     canvas.itemconfig(t_id, text=f"ID:{table_id}\nPOŻAR")
                 
         if not close_event.is_set():
-            root.after(10, poll_queue)
+            root.after(100, poll_queue)
         else:
             # Jak close_event no to zamykamy
             root.destroy()
 
-    root.after(10, poll_queue)
+    root.after(100, poll_queue)
 
     try:
         root.mainloop()

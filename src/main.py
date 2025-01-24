@@ -1,5 +1,5 @@
-from multiprocessing import Process, Queue, Event
-from config import MAX_CONCURRENT_CUSTOMERS
+from multiprocessing import Process, Queue, Event, set_start_method
+from config import MAX_CONCURRENT_CUSTOMERS, CLOSURE_DURATION_AFTER_FIRE
 from manager import manager_process
 from firefighter import firefighter_process
 from gui import gui_process
@@ -19,6 +19,7 @@ Moduł main:
 """
 
 def main():
+    set_start_method("spawn") # potrzebne by obejść automatyczne dziedziczenie desktyptorów przez procesy potomne
     queue = Queue()
     fire_event = Event()
     close_event = Event()
@@ -72,7 +73,7 @@ def main():
             if fire_event.is_set():
                 print("[Main] Jest pożar, nowi klienci nie są generowani.")
                 while fire_event.is_set() and not close_event.is_set():
-                    # time.sleep(0.1)
+                    time.sleep(CLOSURE_DURATION_AFTER_FIRE)
                     pass
                 continue
 
@@ -86,7 +87,7 @@ def main():
                         else:
                             cp.join()
                     customer_procs = new_list
-                    # time.sleep(0.05)
+                    time.sleep(0.05)
 
             print(f"[Main] Obecnie CustomerProcs={len(customer_procs)} aktywnych.", flush=True) # do testów
 
@@ -104,7 +105,7 @@ def main():
 
 
             # Nowy klient co 0.5..1 sekundy
-            # time.sleep(random.uniform(0.5, 1))
+            time.sleep(random.uniform(0.5, 1))
 
     except KeyboardInterrupt:
         print("\n[Main] Ctrl+C => zakańczanie.")
