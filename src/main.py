@@ -1,5 +1,6 @@
-from multiprocessing import Process, Queue, Event, set_start_method, Manager
-from config import MAX_CONCURRENT_CUSTOMERS, CLOSURE_DURATION_AFTER_FIRE
+from multiprocessing import Value, Process, Queue, Event, set_start_method, Manager
+import signal
+from config import MAX_CONCURRENT_CUSTOMERS, CLOSURE_DURATION_AFTER_FIRE, SHUTDOWN_SIGNAL, FIRE_SIGNAL
 from manager import manager_process
 from firefighter import firefighter_process
 from gui import gui_process
@@ -8,6 +9,7 @@ import time
 import traceback
 import random
 import os
+from setproctitle import setproctitle
 
 """
 Moduł main:
@@ -20,9 +22,25 @@ Moduł main:
 """
 
 def main():
+    setproctitle("MainProcess")
+
     # set_start_method("spawn") # potrzebne by obejść automatyczne dziedziczenie desktyptorów przez procesy potomne
     fire_event = Event()
     close_event = Event()
+
+    is_running = Value('b', True) # do sprawdzania czy symulacja wciąż żyje
+
+        # obsługa sygnału CTRL + C lub FIRE
+    def handle_signal(signum, frame):
+        if signum == SHUTDOWN_SIGNAL:
+            print(f"[Main] Otrzymałem sygnał zakończenia symulacji. Zakańczanie symulacji.")
+            is_running.value = False
+        if signum == FIRE_SIGNAL:
+            print(f"[Main] Otrzymałem sygnał pożaru.")
+
+    signal.signal(SHUTDOWN_SIGNAL, handle_signal)
+    signal.signal(FIRE_SIGNAL, handle_signal)
+
 
     gui_queue = Queue()
     
@@ -59,7 +77,7 @@ def main():
 
     # Rozpoczynamy symulacje
     try:
-        while not close_event.is_set():
+        while is_running.value:
             # Wyczyść tych klientów którzy skończyli, by sprawdzać tylko ile jest aktywnych
             alive = []
             for cp in customer_procs:
@@ -107,9 +125,10 @@ def main():
             # Nowy klient co 0.5..1 sekundy
             # time.sleep(random.uniform(0.1, 0.3))
 
-    except KeyboardInterrupt:
-        print("\n[Main] Ctrl+C => zakańczanie.")
+        # SHUTDOWN_SIGNAL zamyka pętle w MAIN
+        # po wyjsciu z ustawiana jest flaga close_event dla pozostałych procesów
         close_event.set()
+        
     except Exception as e:
         print("[Main] ERROR:", e)
         traceback.print_exc()
@@ -120,7 +139,8 @@ def main():
         for cp in customer_procs:
             cp.join()
 
-        firefighter_proc.join()
+        if firefighter_proc.is_alive():
+            firefighter_proc.join()
         manager_proc.join()
         gui_proc.join()
         print("[Main] Symulacja zakończona pomyślnie.")
