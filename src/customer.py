@@ -1,12 +1,11 @@
 import time
 import threading
-from config import SERVER_FIFO
+from config import SERVER_FIFO, CUSTOMER_FIFO_DIR
 import traceback
-from multiprocessing import Queue, Event
+from multiprocessing import Event
 import queue as queue_module
 from setproctitle import setproctitle
 import os
-import sys
 
 """
 Moduł customer: 
@@ -33,14 +32,13 @@ def customer_process( fire_event: Event, close_event: Event, group_size: int, cu
     setproctitle(f"CustomerProcess-{customer_id}-pid({os.getpid()})")
     print(f"[Customer-{customer_id}] Klient (ilość osób={group_size}). Prośba o stolik.")
     
-    my_fifo = f"Customer_fifo_{customer_id}"
+    my_fifo = CUSTOMER_FIFO_DIR + f"Customer_fifo_{customer_id}"
     if not os.path.exists(my_fifo):
-        os.mkfifo(my_fifo)
+        os.remove(my_fifo)
+    os.mkfifo(my_fifo)
 
     req_line = f"{my_fifo}:REQUEST_SEAT {group_size} {customer_id}\n"
-    with open(SERVER_FIFO, "w") as sf:
-        sf.write(req_line)
-        sf.flush()
+    write_to_server_fifo(req_line)
 
     try:
         while not close_event.is_set():
@@ -50,14 +48,16 @@ def customer_process( fire_event: Event, close_event: Event, group_size: int, cu
                 return
 
             # Odbieranie komunikatów z kolejki
-            try:
-                with open(my_fifo, "r") as cf:
-                    resp_line = cf.readline().strip()
-                tokens = resp_line.split()
-                resp_type = tokens[0]
-                table_id = tokens[2]
-            except queue_module.Empty:
-                continue
+            with open(my_fifo, "r") as cf:
+                resp_line = cf.readline().strip()
+            if not resp_line:
+                print(f"Brak odpowiedzi. Może manager umarł")
+                fifo_cleanup(my_fifo)
+                return
+            
+            tokens = resp_line.split()
+            resp_type = tokens[0]
+            table_id = tokens[2]
 
             if resp_type == "SEATED":
                 print(f"[Customer-{customer_id}] Miejsce znalezione. Delektuje się pizzą...")
@@ -74,32 +74,35 @@ def customer_process( fire_event: Event, close_event: Event, group_size: int, cu
                     t.join()
 
                 done_line = f"{my_fifo}:CUSTOMER_DONE {group_size} {table_id}\n"
-                with open(SERVER_FIFO, "w") as sf:
-                    sf.write(done_line)
-                    sf.flush()
+                write_to_server_fifo(done_line)
 
                 print(f"[Customer-{customer_id}] Pizza zjedzona. Klient wychodzi.")
-                os.remove(my_fifo)
                 return
             
             elif resp_type == "REJECTED":
                 print(f"[Customer-{customer_id}] Brak miejsc. Klient wychodzi.")
-                os.remove(my_fifo)
                 return
                     
             elif resp_type == "LEAVE":
                 print(f"[Customer-{customer_id}] Manager powiedział że jest pożar. Klient wychodzi.")
-                os.remove(my_fifo)
                 return
 
     except KeyboardInterrupt:
         print(f"[Customer-{customer_id}] KeyboardInterrupt => zakańczanie.")
-        if os.path.exists(my_fifo):
-            os.remove(my_fifo)
+        fifo_cleanup(my_fifo)
     except Exception as e:
         print(f"[Customer-{customer_id}] ERROR: {e}")
         traceback.print_exc()
     finally:
         print(f"[Customer-{customer_id}] Zakańczanie.")
-        if os.path.exists(my_fifo):
-            os.remove(my_fifo)
+        fifo_cleanup(my_fifo)
+
+def write_to_server_fifo(req_line):
+    with open(SERVER_FIFO, "w") as sf:
+        sf.write(req_line)
+        sf.flush()
+
+
+def fifo_cleanup(my_fifo):
+    if os.path.exists(my_fifo):
+        os.remove(my_fifo)

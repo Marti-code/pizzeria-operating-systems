@@ -8,7 +8,7 @@ import queue as queue_module
 import random
 from setproctitle import setproctitle
 import os
-import sys
+
 
 """
 Moduł manager: główny proces zarządzający pizzerią.
@@ -98,12 +98,17 @@ def manager_process(gui_queue: Queue, fire_event: Event, close_event: Event, sta
     signal.signal(SHUTDOWN_SIGNAL, handle_signal)
 
     print("[Manager] Proces rozpoczęty.")
-    print("[Manager] Stoliki:", tables)
 
+    # próba stworzenia fifo dla managera
     try:
+        if os.path.exists(SERVER_FIFO):
+            os.remove(SERVER_FIFO)
         os.mkfifo(SERVER_FIFO)
+        print(f"[Manager] FIFO -> {SERVER_FIFO}")
     except FileExistsError:
         pass
+    
+    print("[Manager] Stoliki:", tables)
     
     try:
         while not close_event.is_set():
@@ -135,7 +140,7 @@ def manager_process(gui_queue: Queue, fire_event: Event, close_event: Event, sta
             # Próbujemy odebrać wiadomość od klientów z kolejki
             try:
                 with open(SERVER_FIFO, "r") as f:
-                    while True:
+                    while not close_event.is_set():
                         line = f.readline()
                         if not line:
                             break
