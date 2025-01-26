@@ -1,4 +1,14 @@
 import signal
+import platform
+
+is_windows = platform.system() == "Windows"
+
+if is_windows:
+    FIRE_SIGNAL = signal.CTRL_BREAK_EVENT
+else:
+    FIRE_SIGNAL = signal.SIGUSR1 if hasattr(signal, 'SIGUSR1') else signal.SIGINT
+
+SHUTDOWN_SIGNAL = signal.SIGINT
 
 FIRE_SIGNAL = signal.SIGUSR1 if hasattr(signal, 'SIGUSR1') else signal.SIGINT
 SHUTDOWN_SIGNAL = signal.SIGINT
