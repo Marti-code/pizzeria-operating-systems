@@ -42,10 +42,8 @@ def firefighter_process(manager_pid: int, fire_event: Event, close_event: Event)
             fire_event.set() # informacja dla pozostałych
             print("[Firefighter] Wysłano sygnału pożaru.", flush=True)
 
-            # czas do ugaszenia pozaru
-            if fire_event.is_set():
-                # aktualny czas w sekundach
-                ctime = time.time()
+            # aktualny czas w sekundach
+            ctime = time.time()
 
             kill_firefighter = False
             while True:
@@ -63,20 +61,6 @@ def firefighter_process(manager_pid: int, fire_event: Event, close_event: Event)
             #gasi pozar
             print("[Firefighter] Pożar ugaszony.")
             fire_event.clear()
-            
-
-            # Wysyłanie sygnału do manager
-            try:
-                # os.kill(manager_pid, FIRE_SIGNAL) # na windows nie zadziała bo ACCESS DENIED
-                fire_event.set()
-                print("[Firefighter] Wysyłanie sygnału pożaru.", flush=True)
-            except ProcessLookupError:
-                print("[Firefighter] Manager nie istnieje.")
-                break
-            except AttributeError:
-                # Zabezpieczenie jak SIGUSR1 nie zadziała
-                print("[Firefighter] Ustawianie fire_event.")
-                fire_event.set()
 
     except Exception as e:
         print("[Firefighter] ERROR:", e)
