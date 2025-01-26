@@ -1,6 +1,6 @@
-from multiprocessing import Value, Process, Queue, Event, set_start_method, Manager
+from multiprocessing import Value, Process, Queue, Event
 import signal
-from config import MAX_CONCURRENT_CUSTOMERS, CLOSURE_DURATION_AFTER_FIRE, SHUTDOWN_SIGNAL, FIRE_SIGNAL
+from config import MAX_CONCURRENT_CUSTOMERS, SHUTDOWN_SIGNAL, FIRE_SIGNAL
 from manager import manager_process
 from firefighter import firefighter_process
 from gui import gui_process
@@ -24,7 +24,6 @@ Moduł main:
 def main():
     setproctitle("MainProcess")
 
-    # set_start_method("spawn") # potrzebne by obejść automatyczne dziedziczenie desktyptorów przez procesy potomne
     fire_event = Event()
     close_event = Event()
 
@@ -99,6 +98,7 @@ def main():
             if len(customer_procs) >= MAX_CONCURRENT_CUSTOMERS:
                 while len(customer_procs) >= MAX_CONCURRENT_CUSTOMERS and not close_event.is_set():
                     new_list = []
+                    # tak długo jak ilosc klientów jest za duża próbkujemy ich stan i czekamy, aż ilość będzie ok
                     for cp in customer_procs:
                         if cp.is_alive():
                             new_list.append(cp)
@@ -122,7 +122,7 @@ def main():
 
 
             # Nowy klient co 0.5..1 sekundy
-            # time.sleep(random.uniform(0.1, 0.3))
+            time.sleep(random.uniform(0.5, 1))
 
         # SHUTDOWN_SIGNAL zamyka pętle w MAIN
         # po wyjsciu z ustawiana jest flaga close_event dla pozostałych procesów
@@ -137,10 +137,17 @@ def main():
         print("[Main] Czekam na zakończenie wszystkich procesów...")
         for cp in customer_procs:
             cp.join()
+        print("[Main] Wszyscy klienci wykończeni...")
 
         if firefighter_proc.is_alive():
             firefighter_proc.join()
-        manager_proc.join()
+        print("[Main] Firefighter wykończony...")
+
+        while not gui_queue.empty(): gui_queue.get()
+        if manager_proc.is_alive():
+            manager_proc.join()
+        print("[Main] Manager wykończony...")
+        
         gui_proc.join()
         print("[Main] Symulacja zakończona pomyślnie.")
 
