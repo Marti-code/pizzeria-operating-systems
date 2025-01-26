@@ -121,21 +121,31 @@ def manager_process(gui_queue: Queue, fire_event: Event, close_event: Event, sta
                     for t in size_list:
                         gui_queue.put(("TABLE_FIRE", t['table_id']))
 
-                # Zamykamy pizzerię na ustalony czas
-                time.sleep(CLOSURE_DURATION_AFTER_FIRE)
+                kill_manager = False
+
+                # pizzeria jest zamknięta na czas CLOSURE_DURATION_AFTER_FIRE
+                # otwiera ją firefigter zdejumjąc flage
+                while fire_event.is_set():
+                    if close_event.is_set():
+                        kill_manager = True
+                        break
+
+                # miedzyczasie jak jest pozar kontroluje czy mam wstrzymać proces za pomocą tej flagi
+                if kill_manager:
+                    break
 
                 # Ponowne otwarcie po pożarze
-                print("[Manager] Otwieranie pizzerii po pożarze.", flush=True)
-                pizzeria_open = True
-                fire_event.clear()
-                tables = initialize_tables()
+                # print("[Manager] Otwieranie pizzerii po pożarze.", flush=True)
+                # pizzeria_open = True
+                # fire_event.clear()
+                # tables = initialize_tables()
                 
-                # Wysyłamy do GUI aktualizacje na zielono (0 seats)
-                for size_list in tables.values():
-                    for t in size_list:
-                        gui_queue.put(("TABLE_UPDATE", (t['table_id'], 0, t['capacity'])))
+                # # Wysyłamy do GUI aktualizacje na zielono (0 seats)
+                # for size_list in tables.values():
+                #     for t in size_list:
+                #         gui_queue.put(("TABLE_UPDATE", (t['table_id'], 0, t['capacity'])))
                 
-                print("[Manager] Reinicjalizacja stolików zakończona.")
+                # print("[Manager] Reinicjalizacja stolików zakończona.")
 
             # Próbujemy odebrać wiadomość od klientów z kolejki
             try:

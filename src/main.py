@@ -88,10 +88,10 @@ def main():
             customer_procs = alive
 
             # wstrzymaj generowanie nowych klientów jeśli jest pożar
+            # idź do następnej iteracji
             if fire_event.is_set():
                 print("[Main] Jest pożar, nowi klienci nie są generowani.")
                 while fire_event.is_set() and not close_event.is_set():
-                    time.sleep(CLOSURE_DURATION_AFTER_FIRE)
                     pass
                 continue
 
@@ -105,7 +105,6 @@ def main():
                         else:
                             cp.join()
                     customer_procs = new_list
-                    time.sleep(0.05)
 
             print(f"[Main] Obecnie CustomerProcs={len(customer_procs)} aktywnych.", flush=True) # do testów
 
