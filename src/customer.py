@@ -38,6 +38,7 @@ def customer_process( fire_event: Event, close_event: Event, group_size: int, cu
     
     setproctitle(f"CustomerProcess-{customer_id}-pid({os.getpid()})")
     
+    # Tworzymy fifo dla klienta w folderze 'fifo'
     my_fifo = CUSTOMER_FIFO_DIR + f"Customer_fifo_{customer_id}"
     if os.path.exists(my_fifo):
         os.remove(my_fifo)

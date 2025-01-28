@@ -39,6 +39,9 @@ def main():
     signal.signal(SHUTDOWN_SIGNAL, handle_signal)
     signal.signal(FIRE_SIGNAL, handle_signal)
 
+    # Sprawdzamy czy istnieje katalog 'fifo' jesli nie to tworzymy
+    if not os.path.exists("fifo"):
+        os.makedirs("fifo")
 
     gui_queue = Queue()
     
