@@ -9,6 +9,7 @@ import os
 """
 Moduł firefighter:
 - wywołuje pożary w pizzerii co pewien losowy czas
+- gasi pożar
 """
 
 def firefighter_process(manager_pid: int, fire_event: Event, close_event: Event):
@@ -20,8 +21,7 @@ def firefighter_process(manager_pid: int, fire_event: Event, close_event: Event)
         while not close_event.is_set():
             delay = random.randint(30,45)
             print(f"[Firefighter] Następny pożar za ~{delay} sekund...")
-            time.sleep(delay)
-            
+
             ctime = time.time()
 
             kill_firefighter = False

@@ -10,9 +10,6 @@ else:
 
 SHUTDOWN_SIGNAL = signal.SIGINT
 
-FIRE_SIGNAL = signal.SIGUSR1 if hasattr(signal, 'SIGUSR1') else signal.SIGINT
-SHUTDOWN_SIGNAL = signal.SIGINT
-
 # fifo będą w osobnym folderze
 SERVER_FIFO = "fifo/manager_fifo"
 CUSTOMER_FIFO_DIR = "fifo/"
@@ -32,4 +29,4 @@ CLOSURE_DURATION_AFTER_FIRE = 5 # na ile sekund pizzeria się zamyka po pożarze
 
 MAX_CONCURRENT_CUSTOMERS = 30 # limity aktywnych na raz klientów
 
-MAX_EAT_TIME = 0.5
+MAX_EAT_TIME = 1

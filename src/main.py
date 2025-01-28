@@ -13,12 +13,11 @@ from setproctitle import setproctitle
 
 """
 Moduł main:
-- tworzy kolejkę (Queue) do komunikacji
+- tworzy kolejkę (Queue) dla GUI
 - uruchamia procesy: Manager, Firefighter, GUI
 - w pętli tworzy procesy-Klientów (customer_process)
 - nadzoruje liczbę aktywnych klientów (MAX_CONCURRENT_CUSTOMERS)
-- reaguje na sygnał pożaru (fire_event) wstrzymując generowanie nowych klientów
-- obsługuje zakończenie poprzez KeyboardInterrupt lub close_event
+- obsługuje sygnały SHUTDOWN_SIGNAL i FIRE_SIGNAL
 """
 
 def main():
@@ -86,15 +85,7 @@ def main():
                     cp.join()
             customer_procs = alive
 
-            # wstrzymaj generowanie nowych klientów jeśli jest pożar
-            # idź do następnej iteracji
-            if fire_event.is_set():
-                print("[Main] Jest pożar, nowi klienci nie są generowani.")
-                while fire_event.is_set() and not close_event.is_set():
-                    pass
-                continue
-
-            # limity bo CPU nie wydoli
+            # limity
             if len(customer_procs) >= MAX_CONCURRENT_CUSTOMERS:
                 while len(customer_procs) >= MAX_CONCURRENT_CUSTOMERS and not close_event.is_set():
                     new_list = []

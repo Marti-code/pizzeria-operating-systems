@@ -1,10 +1,7 @@
-from config import TABLE_COUNTS, FIRE_SIGNAL, SHUTDOWN_SIGNAL, CLOSURE_DURATION_AFTER_FIRE, SERVER_FIFO
-from utils import flush_requests
-import signal
+from config import TABLE_COUNTS, CLOSURE_DURATION_AFTER_FIRE, SERVER_FIFO
 import time
 import traceback
 from multiprocessing import Queue, Event
-import queue as queue_module
 import random
 from setproctitle import setproctitle
 import os
@@ -22,6 +19,10 @@ Odpowiedzialności:
 6. Aktualizacja informacji w GUI (gui_queue) – np. PROFI_UPDATE, TABLE_UPDATE, TABLE_FIRE
 7. Przy zakończeniu (close_event) lub sygnale SHUTDOWN_SIGNAL, loguje statystyki do pliku (pizzeria_log.txt) i kończy działanie
 """
+
+# Format: "client_fifo_name:REQUEST_SEAT group_size customer_id"
+#    lub: "client_fifo_name:CUSTOMER_DONE group_size table_id"
+                        
 
 def manager_process(gui_queue: Queue, fire_event: Event, close_event: Event, start_time: float):
     setproctitle("ManagerProcess")
@@ -76,27 +77,6 @@ def manager_process(gui_queue: Queue, fire_event: Event, close_event: Event, sta
                             return table
         return None
 
-    # Sygnały
-    def handle_signal(signum, frame):
-        """
-        Obsługa sygnałów przychodzących do procesu Manager.
-        - FIRE_SIGNAL: pożar => ustawia fire_event i pizzeria_open=False,
-        - SHUTDOWN_SIGNAL: zakończenie => ustawia close_event.
-        """
-
-        nonlocal pizzeria_open
-        if signum == FIRE_SIGNAL:
-            print(f"[Manager] Otrzymałem sygnał pożaru. Ewakuacja pizzeri!")
-            fire_event.set()
-            pizzeria_open = False
-        elif signum == SHUTDOWN_SIGNAL:
-            print(f"[Manager] Otrzymałem sygnał zakończenia symulacji. Zakańczanie symulacji.")
-            close_event.set()
-
-    # Przypisujemy funkcje do obsługi sygnałów
-    signal.signal(FIRE_SIGNAL, handle_signal)
-    signal.signal(SHUTDOWN_SIGNAL, handle_signal)
-
     print("[Manager] Proces rozpoczęty.")
 
     # próba stworzenia fifo dla managera
@@ -109,157 +89,181 @@ def manager_process(gui_queue: Queue, fire_event: Event, close_event: Event, sta
         pass
     
     print("[Manager] Stoliki:", tables)
+
+    # otwarcie fifo managera
+    mf = os.open(SERVER_FIFO, os.O_RDONLY | os.O_NONBLOCK)
+    mff = os.fdopen(mf, "r")
     
     try:
         while not close_event.is_set():
             if fire_event.is_set():
-                # Ewakuacja
-                print(f"[Manager] Pizzeria zamknięta na {CLOSURE_DURATION_AFTER_FIRE} sekund (pożar).")
+                if pizzeria_open:
+                    # Ewakuacja
+                    print(f"[Manager] Pizzeria zamknięta na {CLOSURE_DURATION_AFTER_FIRE} sekund (pożar).")
 
-                # Powiadamiamy GUI, że stoliki mają być 'czarne' (TABLE_FIRE)
+                    # Powiadamiamy GUI, że stoliki mają być 'czarne' (TABLE_FIRE)
+                    for size_list in tables.values():
+                        for t in size_list:
+                            gui_queue.put(("TABLE_FIRE", t['table_id']))
+
+                pizzeria_open = False
+
+
+            # powrót po pozarze
+            if not fire_event.is_set() and not pizzeria_open:
+                # Ponowne otwarcie po pożarze
+                print("[Manager] Otwieranie pizzerii po pożarze.", flush=True)
+                tables = initialize_tables()
+                
+                # Wysyłamy do GUI aktualizacje na zielono (0 seats)
                 for size_list in tables.values():
                     for t in size_list:
-                        gui_queue.put(("TABLE_FIRE", t['table_id']))
-
-                kill_manager = False
-
-                # pizzeria jest zamknięta na czas CLOSURE_DURATION_AFTER_FIRE
-                # otwiera ją firefigter zdejumjąc flage
-                while fire_event.is_set():
-                    if close_event.is_set():
-                        kill_manager = True
-                        break
-
-                # miedzyczasie jak jest pozar kontroluje czy mam wstrzymać proces za pomocą tej flagi
-                if kill_manager:
-                    break
-
-                # Ponowne otwarcie po pożarze
-                # print("[Manager] Otwieranie pizzerii po pożarze.", flush=True)
-                # pizzeria_open = True
-                # fire_event.clear()
-                # tables = initialize_tables()
+                        gui_queue.put(("TABLE_UPDATE", (t['table_id'], 0, t['capacity'])))
                 
-                # # Wysyłamy do GUI aktualizacje na zielono (0 seats)
-                # for size_list in tables.values():
-                #     for t in size_list:
-                #         gui_queue.put(("TABLE_UPDATE", (t['table_id'], 0, t['capacity'])))
-                
-                # print("[Manager] Reinicjalizacja stolików zakończona.")
+                pizzeria_open = True
+                print("[Manager] Reinicjalizacja stolików zakończona.")
 
-            # Próbujemy odebrać wiadomość od klientów z kolejki
+            # łapiemy fifo jako plik
+            line = None
+            line = mff.readline()
+            
+            if line == None: continue
+            
+            line = line.strip()
+
+            if line == "": continue
+            print(f"[Manager] Odebrano: {line}.")
+
             try:
-                with open(SERVER_FIFO, "r") as f:
-                    while not close_event.is_set():
-                        line = f.readline()
-                        if not line:
-                            break
-
-                        line = line.strip()
-                        if not line:
-                            continue
-
-                        # Format: "client_fifo_name:REQUEST_SEAT group_size customer_id"
-                        #    lub: "client_fifo_name:CUSTOMER_DONE group_size table_id"
-                        try:
-                            fifo_part, message_part = line.split(":", 1)
-                        except ValueError:
-                            print("[Manager] Ignorowanie wiadomości w złym formacie:", line)
-                            continue
-
-                        client_fifo = fifo_part.strip()
-                        msg_tokens = message_part.strip().split()
-                        if len(msg_tokens) < 3:
-                            print("[Manager] Ignorowanie niepełnej wiadomości:", msg_tokens)
-                            continue
-                        msg_type = msg_tokens[0]
-                        group_size = int(msg_tokens[1])
-                        customer_id = msg_tokens[2]
-
-                        if msg_type == "REQUEST_SEAT":
-                            if not pizzeria_open:
-                                print(f"[Manager] Pizzeria zamknięta. Informowanie klienta {customer_id} by wyszedł.")
-                                with open(client_fifo, "w") as cf:
-                                    cf.write(f"REJECTED {group_size} {customer_id}\n")
-                                continue
-                            tbl = seat_customer_group(group_size)
-
-                            if tbl:
-                                table_id = tbl['table_id']
-                                # Udało się usiąść => SEATED     
-                                group_profit = group_size * random.randint(10,25)
-                                total_profit += group_profit
-
-                                # Informacja do GUI o wzroście zysku
-                                gui_queue.put(("PROFIT_UPDATE", total_profit))
-
-                                # Statystyki do pliku
-                                if group_size in group_accepted:
-                                    group_accepted[group_size] += 1
-
-                                table_usage[tbl['capacity']] += 1
-
-                                print(
-                                    f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) przy stoliku {table_id} "
-                                    f"Profit+={group_profit}, Całkowity profit={total_profit}", flush=True
-                                )
-
-                                # update GUI o ilości osób przy stoliku
-                                gui_queue.put(("TABLE_UPDATE", (table_id, tbl['used_seats'], tbl['capacity'])))
-
-                                with open(client_fifo, "w") as cf:
-                                    cf.write(f"SEATED {group_size} {table_id}\n")
-                            else:
-                                print(
-                                    f"[Manager] Klient {customer_id} nie mógł usiąść (ilość osób={group_size}). Brak miejsca.", flush=True
-                                )
-
-                                # Statystyki do pliku
-                                if group_size in group_rejected:
-                                    group_rejected[group_size] += 1
-
-                                with open(client_fifo, "w") as cf:
-                                    cf.write(f"REJECTED {group_size} {customer_id}\n")
-
-                        elif msg_type == "CUSTOMER_DONE":
-                            # Szukamy "tego" stolika w 'tables'
-                            for size_arr in tables.values():
-                                for table in size_arr:
-                                    if table['table_id'] == table_id:
-                                        print(
-                                            f"[Manager] Zwolniło się {group_size} miejsca ze stolika {table_id}.", flush=True
-                                        )
-                                        # Aktualizujemy liczbę zajętych miejsc
-                                        table['used_seats'] -= group_size
-                                        if table['used_seats'] < 0:
-                                            table['used_seats'] = 0
-                                        # Jeśli stolik jest całkowicie pusty, resetujemy group_size
-                                        if table['used_seats'] == 0:
-                                            table['group_size'] = None
-                                        
-                                        # update GUI
-                                        gui_queue.put(("TABLE_UPDATE", (table['table_id'], table['used_seats'], table['capacity'])))
-                                        
-                                        break
-
-                        else:
-                            print("[Manager] Nieznana wiadomość msg_type:", msg_type)
-            except queue_module.Empty:
+                fifo_part, message_part = line.split(":", 1)
+            except ValueError:
+                print("[Manager] Ignorowanie wiadomości w złym formacie:", line)
                 continue
-            except InterruptedError:
-                print("[Manager] Proces przerwany => Zakańczanie...")
-                break
-            except KeyboardInterrupt:
-                print("[Manager] KeyboardInterrupt => Zakańczanie...")
-                break
 
-        # Koniec pętli – zamykamy pizzerię
+            msg_tokens = message_part.strip().split()
+            if len(msg_tokens) < 3:
+                print("[Manager] Ignorowanie niepełnej wiadomości:", msg_tokens)
+                continue
+            msg_type = msg_tokens[0]
+
+            client_fifo = fifo_part.strip()
+
+            if msg_type == "REQUEST_SEAT":
+                group_size = int(msg_tokens[1])
+                customer_id = msg_tokens[2]
+
+                if not pizzeria_open:
+
+                    while True:
+                        try:
+                            print(f"[Manager] Pizzeria zamknięta. Informowanie klienta {customer_id} by wyszedł.")
+                            cf = os.open(client_fifo, os.O_WRONLY | os.O_NONBLOCK)
+                            os.write(cf, bytes(f"LEAVE {group_size} {customer_id}\n", "utf-8"))
+                            os.close(cf)
+                            break
+                        except OSError as e:
+                            if close_event.is_set(): break
+                            continue
+                    
+                    continue
+                
+                tbl = seat_customer_group(group_size)
+
+                if tbl:
+                    table_id = tbl['table_id']
+                    # Udało się usiąść => SEATED     
+                    group_profit = group_size * random.randint(10,25)
+                    total_profit += group_profit
+
+                    # Informacja do GUI o wzroście zysku
+                    gui_queue.put(("PROFIT_UPDATE", total_profit))
+
+                    # Statystyki do pliku
+                    if group_size in group_accepted:
+                        group_accepted[group_size] += 1
+
+                    table_usage[tbl['capacity']] += 1
+
+                    print(
+                        f"[Manager] Klient {customer_id} zajął miejsce (ilość osób={group_size}) przy stoliku {table_id} "
+                        f"Profit+={group_profit}, Całkowity profit={total_profit}", flush=True
+                    )
+
+                    # update GUI o ilości osób przy stoliku
+                    gui_queue.put(("TABLE_UPDATE", (table_id, tbl['used_seats'], tbl['capacity'])))
+
+                    # test czy fire
+                    if fire_event.is_set(): break
+
+                    while True:
+                        try:
+                            cf = os.open(client_fifo, os.O_WRONLY | os.O_NONBLOCK)
+                            os.write(cf, bytes(f"SEATED {group_size} {table_id}\n", "utf-8"))
+                            os.close(cf)
+                            break
+                        except OSError as e:
+                            if fire_event.is_set() or close_event.is_set(): break
+                            continue
+                else:
+                    print(
+                        f"[Manager] Klient {customer_id} nie mógł usiąść (ilość osób={group_size}). Brak miejsca.", flush=True
+                    )
+
+                    # Statystyki do pliku
+                    if group_size in group_rejected:
+                        group_rejected[group_size] += 1
+
+                    # test czy fire
+                    if fire_event.is_set(): break
+
+                    while True:
+                        try:
+                            cf = os.open(client_fifo, os.O_WRONLY | os.O_NONBLOCK)
+                            os.write(cf, bytes(f"REJECTED {group_size} {customer_id}\n", "utf-8"))
+                            os.close(cf)
+                            break
+                        except OSError as e:
+                            if fire_event.is_set() or close_event.is_set(): break
+                            continue
+
+            elif msg_type == "CUSTOMER_DONE":
+                group_size = int(msg_tokens[1])
+                table_id = int(msg_tokens[2])
+                for size_arr in tables.values():
+                    for table in size_arr:
+                        if table['table_id'] == table_id:
+                            print(
+                                f"[Manager] Zwolniło się {group_size} miejsca ze stolika {table_id}.", flush=True
+                            )
+                            # Aktualizujemy liczbę zajętych miejsc
+                            table['used_seats'] -= group_size
+                            if table['used_seats'] < 0:
+                                table['used_seats'] = 0
+                            # Jeśli stolik jest całkowicie pusty, resetujemy group_size
+                            if table['used_seats'] == 0:
+                                table['group_size'] = None
+                            
+                            # update GUI
+                            gui_queue.put(("TABLE_UPDATE", (table['table_id'], table['used_seats'], table['capacity'])))
+                            
+                            break
+            else:
+                print("[Manager] Nieznana wiadomość msg_type:", msg_type)
+
+        # usuwamy fifo managera
+        try:
+            mff.close()
+            os.close(mf)
+        except:
+            pass
+
+        print(f"[Manager] Pizzeria zamknięta. Całkowity profit = {total_profit}")
+
         try:
             os.remove(SERVER_FIFO)
         except:
             pass
 
-        print(f"[Manager] Pizzeria zamknięta. Całkowity profit = {total_profit}")
         print("[Manager] Manager - zakańczanie.")
 
     except Exception as e:
@@ -294,4 +298,3 @@ def manager_process(gui_queue: Queue, fire_event: Event, close_event: Event, sta
             print("[Manager] Błąd zapisu do pizzeria_log.txt:", file_err)
 
         print("[Manager] Manager - proces się zakończył.")
-

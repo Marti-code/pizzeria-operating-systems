@@ -28,10 +28,10 @@ def person_in_group(thread_id: int, customer_id: int, close_event: Event, fire_e
 def customer_process( fire_event: Event, close_event: Event, group_size: int, customer_id: int):
     
     """
-    1. Wysyła ("REQUEST_SEAT", (group_size, customer_id)) do managera, by poprosić o stolik
-    2. Czeka na "SEATED", "LEAVE" lub "REJECTED" z kolejki
+    1. Wysyła {my_fifo}:REQUEST_SEAT {group_size} {customer_id} do managera, by poprosić o stolik
+    2. Czeka na "SEATED", "LEAVE" lub "REJECTED" od managera
     3. Jeśli "SEATED", tworzy wątki (person_in_group) dla każdej osoby w grupie
-       Każdy wątek 'je' (sleep). Następnie wysyła ("CUSTOMER_DONE", ...) do managera
+       Każdy wątek 'je' (sleep). Następnie wysyła "CUSTOMER_DONE" do managera
     4. Jeśli "REJECTED", kończy proces a klient 'wychodzi'
     5. Jeśli "LEAVE" (pożar) lub fire_event.is_set() – klient 'ucieka'
     """
@@ -39,7 +39,7 @@ def customer_process( fire_event: Event, close_event: Event, group_size: int, cu
     setproctitle(f"CustomerProcess-{customer_id}-pid({os.getpid()})")
     
     my_fifo = CUSTOMER_FIFO_DIR + f"Customer_fifo_{customer_id}"
-    if not os.path.exists(my_fifo):
+    if os.path.exists(my_fifo):
         os.remove(my_fifo)
     os.mkfifo(my_fifo)
 
@@ -113,6 +113,7 @@ def customer_process( fire_event: Event, close_event: Event, group_size: int, cu
         except:
             pass
         print(f"[Customer-{customer_id}] Wychodzi.")
+    
     except Exception as e:
         print(f"[Customer-{customer_id}] ERROR: {e}")
         traceback.print_exc()
