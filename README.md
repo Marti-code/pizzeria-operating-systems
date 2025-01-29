@@ -1,6 +1,8 @@
-# Pizzeria Operating Systems Project ![Status](https://img.shields.io/badge/status-ONGOING-brightgreen)
+# Pizzeria Operating Systems Project
 
 A simulation of a pizzeria, developed as part of a university assignment.
+
+<img src="https://github.com/Marti-code/pizzeria-operating-systems/blob/master/diagram.jpg"/>
 
 ## Project Overview
 
